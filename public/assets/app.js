@@ -117,15 +117,39 @@
     return out;
   }
 
+  // ---------- تاريخ الإتمام داخل النص ----------
+  // تُملأ خانات التاريخ الفارغة في نص العقد (مثل "  /  /1447هـ" و "  /  /2026م")
+  // بتاريخ آخر توقيع، بالتقويم الهجري (أم القرى) والميلادي، وبنفس خط النص.
+  const DATE_TZ = 'Asia/Riyadh';
+  const DATE_SLOT = /[ \t]*\/[ \t]*\/[ \t]*([0-9\u0660-\u0669]{4})[ \t]*(هـ|م)/g;
+
+  function dateParts(date, calendar, arabicDigits) {
+    const parts = new Intl.DateTimeFormat(`en-u-ca-${calendar}-nu-${arabicDigits ? 'arab' : 'latn'}`, {
+      timeZone: DATE_TZ, day: 'numeric', month: 'numeric', year: 'numeric',
+    }).formatToParts(date);
+    const get = (t) => parts.find((x) => x.type === t).value;
+    return `${get('day')}/${get('month')}/${get('year')}`;
+  }
+
+  function fillCompletionDate(text, completedAt) {
+    if (!completedAt) return text;
+    const date = new Date(completedAt);
+    const weekday = new Intl.DateTimeFormat('ar', { weekday: 'long', timeZone: DATE_TZ }).format(date);
+    return text.replace(DATE_SLOT, (match, year, suffix, offset, whole) => {
+      const arabic = /[\u0660-\u0669]/.test(year);
+      const value = dateParts(date, suffix === 'هـ' ? 'islamic-umalqura' : 'gregory', arabic);
+      const day = suffix === 'هـ' && /يوم\s*:?\s*$/.test(whole.slice(0, offset)) ? `${weekday} ` : '';
+      return ` ${day}${value}${suffix}`;
+    });
+  }
+
+  // الورقة تعرض نص العقد فقط: لا أرقام ولا بصمات ولا تواريخ من خارج النص.
   function paper(v, contract, extra) {
+    const body = contract.status === 'completed' ? fillCompletionDate(v.body, contract.completedAt) : v.body;
     return h('article', { class: 'paper' },
       h('h2', { class: 'doc-title' }, v.title),
-      h('div', { class: 'doc-sub' }, `الإصدار ${v.n} · ${fmt(v.createdAt)}`),
-      renderBody(v.body),
-      extra || null,
-      h('div', { class: 'doc-foot' },
-        h('span', null, 'معرّف العقد: ', h('span', { class: 'mono' }, contract.id)),
-        h('span', null, 'بصمة النسخة (SHA-256): ', h('span', { class: 'mono', title: v.hash }, shortHash(v.hash)))));
+      renderBody(body),
+      extra || null);
   }
 
   function diffView(a, b) {
@@ -597,7 +621,8 @@
     let signCard = null;
     if (me && editable && me.state !== 'signed') signCard = buildSignCard(d);
 
-    const sigBlock = d.status === 'completed' ? h('div', { class: 'sig-grid' }, d.parties.map((p) => sigBox(d, p))) : null;
+    const sigBlock = d.status === 'completed' ? h('section', { class: 'sign-section' },
+      h('h3', null, 'توقيع الشركاء'), h('div', { class: 'sig-grid' }, d.parties.map((p) => sigBox(d, p)))) : null;
 
     const versionsCard = h('section', { class: 'card' },
       h('h3', null, `سجل الإصدارات (${d.versions.length})`),
@@ -633,6 +658,7 @@
             h('h1', null, v.title),
             h('div', { class: 'meta' },
               h('span', null, `الإصدار ${v.n}`),
+              h('span', null, 'البصمة ', h('span', { class: 'mono', title: v.hash }, shortHash(v.hash))),
               h('span', null, `أُنشئ ${fmt(d.createdAt)}`),
               h('span', null, isOwner ? 'أنت منشئ العقد' : `أنت: ${me.name}`))),
           h('div', { style: 'min-width:240px;flex:0 1 320px' },
@@ -657,11 +683,9 @@
   function sigBox(d, p) {
     const s = d.signatures.find((x) => x.partyId === p.id);
     return h('div', { class: 'sig-box' },
+      p.role ? h('div', { class: 'role' }, `${p.role}:`) : null,
       s ? h('img', { src: s.image, alt: `توقيع ${p.name}` }) : h('div', { class: 'empty' }, 'بانتظار التوقيع'),
-      h('b', null, p.name),
-      h('small', null, p.role || ''),
-      p.idNumber ? h('small', null, `هوية: ${p.idNumber}`) : null,
-      s ? h('small', null, fmt(s.signedAt)) : null);
+      h('b', null, p.name));
   }
 
   function buildSignCard(d) {
@@ -809,47 +833,56 @@
         h('td', { class: 'mono' }, s && s.ip ? s.ip : '—'));
     });
 
+    const audit = new URLSearchParams(location.search).get('view') === 'audit';
+    const here = `/certificate/${token}`;
+
+    // النسخة الموقعة: نص العقد والتوقيعات فقط، بلا أي إضافات.
+    const contractDoc = h('article', { class: 'cert' },
+      done ? null : h('div', { class: 'watermark' }, h('span', null, 'مسودة غير مكتملة')),
+      paper(v, d, h('section', { class: 'sign-section' },
+        h('h3', null, 'توقيع الشركاء'),
+        h('div', { class: 'sig-grid' }, d.parties.map((p) => sigBox(d, p))))));
+
+    // شهادة الإتمام وسجل التدقيق: وثيقة إثبات مستقلة عن نص العقد.
+    const auditDoc = h('article', { class: 'cert' },
+      h('h1', null, 'شهادة إتمام التوقيع'),
+      h('div', { class: `seal${done ? '' : ' draft'}` }, done ? `✔ ${v.title}` : '⏳ لم يكتمل توقيع جميع الأطراف'),
+      h('dl', { class: 'kv' },
+        h('dt', null, 'معرّف العقد'), h('dd', { class: 'mono' }, d.id),
+        h('dt', null, 'الإصدار المعتمد'), h('dd', null, `${v.n} (${fmt(v.createdAt)})`),
+        h('dt', null, 'بصمة النص SHA-256'), h('dd', { class: 'mono' }, v.hash),
+        done ? [h('dt', null, 'تاريخ الاكتمال'), h('dd', null, fmt(d.completedAt)),
+          h('dt', null, 'البصمة النهائية'), h('dd', { class: 'mono' }, d.finalHash)] : null),
+      h('h2', null, 'التوقيعات'),
+      h('table', null,
+        h('thead', null, h('tr', null, ['الطرف', 'الصفة', 'رقم الهوية', 'وقت التوقيع', 'طريقة التوقيع', 'عنوان IP'].map((t) => h('th', null, t)))),
+        h('tbody', null, rows)),
+      h('h2', null, 'سجل التدقيق'),
+      h('p', { class: 'small', style: 'margin-top:0' }, d.auditChainValid
+        ? '✔ سلسلة البصمات سليمة: كل حدث مرتبط ببصمة الحدث الذي قبله، وأي تلاعب بالسجل يكسر السلسلة.'
+        : '✖ تحذير: سلسلة البصمات غير متطابقة.'),
+      h('table', null,
+        h('thead', null, h('tr', null, ['#', 'الوقت', 'الحدث', 'بواسطة', 'تفاصيل', 'IP'].map((t) => h('th', null, t)))),
+        h('tbody', null, d.audit.map((e) => {
+          const dt = e.details || {};
+          const det = e.action === 'amended' ? `${dt.fromVersion}←${dt.version}: ${dt.note}`
+            : e.action === 'changes_requested' || e.action === 'voided' ? dt.reason
+            : dt.version ? `الإصدار ${dt.version}` : '';
+          return h('tr', null, h('td', null, e.seq), h('td', null, fmt(e.at)), h('td', null, (AUDIT_UI[e.action] || { t: e.action }).t),
+            h('td', null, e.actor ? e.actor.name : ''), h('td', null, det), h('td', { class: 'mono' }, e.ip || '—'));
+        }))),
+      h('p', { class: 'small', style: 'margin-top:18px' }, 'للتحقق من صحة العقد: ', h('span', { class: 'mono' }, d.verifyUrl)));
+
     mount(
       topbar([h('a', { class: 'btn sm', href: back }, 'رجوع للعقد')]),
       h('main', { class: 'wrap' },
         h('div', { class: 'toolbar' },
-          h('button', { class: 'btn primary', onclick: () => window.print() }, 'طباعة / حفظ PDF'),
-          h('a', { class: 'btn', href: `/api/session/${token}/export` }, 'تنزيل ملف الإثبات (JSON)'),
-          h('button', { class: 'btn', onclick: () => copy(d.verifyUrl, 'تم نسخ رابط التحقق') }, 'نسخ رابط التحقق')),
-        h('article', { class: 'cert' },
-          done ? null : h('div', { class: 'watermark' }, h('span', null, 'مسودة غير مكتملة')),
-          h('h1', null, v.title),
-          h('div', { class: `seal${done ? '' : ' draft'}` }, done ? `✔ عقد مكتمل التوقيع من ${d.parties.length} أطراف` : '⏳ مسودة — لم يكتمل توقيع جميع الأطراف'),
-          h('dl', { class: 'kv' },
-            h('dt', null, 'معرّف العقد'), h('dd', { class: 'mono' }, d.id),
-            h('dt', null, 'الإصدار المعتمد'), h('dd', null, `${v.n} (${fmt(v.createdAt)})`),
-            h('dt', null, 'بصمة النص SHA-256'), h('dd', { class: 'mono' }, v.hash),
-            done ? [h('dt', null, 'تاريخ الاكتمال'), h('dd', null, fmt(d.completedAt)),
-              h('dt', null, 'البصمة النهائية'), h('dd', { class: 'mono' }, d.finalHash)] : null),
-          h('h2', null, 'نص العقد'),
-          paper(v, d),
-          h('h2', null, 'التوقيعات'),
-          h('div', { class: 'sig-grid' }, d.parties.map((p) => sigBox(d, p))),
-          h('div', { class: 'page-break' }),
-          h('h2', null, 'شهادة إتمام التوقيع'),
-          h('table', null,
-            h('thead', null, h('tr', null, ['الطرف', 'الصفة', 'رقم الهوية', 'وقت التوقيع', 'طريقة التوقيع', 'عنوان IP'].map((t) => h('th', null, t)))),
-            h('tbody', null, rows)),
-          h('h2', null, 'سجل التدقيق'),
-          h('p', { class: 'small', style: 'margin-top:0' }, d.auditChainValid
-            ? '✔ سلسلة البصمات سليمة: كل حدث مرتبط ببصمة الحدث الذي قبله، وأي تلاعب بالسجل يكسر السلسلة.'
-            : '✖ تحذير: سلسلة البصمات غير متطابقة.'),
-          h('table', null,
-            h('thead', null, h('tr', null, ['#', 'الوقت', 'الحدث', 'بواسطة', 'تفاصيل', 'IP'].map((t) => h('th', null, t)))),
-            h('tbody', null, d.audit.map((e) => {
-              const dt = e.details || {};
-              const det = e.action === 'amended' ? `${dt.fromVersion}←${dt.version}: ${dt.note}`
-                : e.action === 'changes_requested' || e.action === 'voided' ? dt.reason
-                : dt.version ? `الإصدار ${dt.version}` : '';
-              return h('tr', null, h('td', null, e.seq), h('td', null, fmt(e.at)), h('td', null, (AUDIT_UI[e.action] || { t: e.action }).t),
-                h('td', null, e.actor ? e.actor.name : ''), h('td', null, det), h('td', { class: 'mono' }, e.ip || '—'));
-            }))),
-          h('p', { class: 'small', style: 'margin-top:18px' }, 'للتحقق من صحة هذه الوثيقة: ', h('span', { class: 'mono' }, d.verifyUrl)))),
+          h('div', { class: 'tabs', style: 'margin:0' },
+            h('a', { class: `btn sm ${audit ? 'ghost' : 'primary'}`, href: here }, 'العقد الموقّع'),
+            h('a', { class: `btn sm ${audit ? 'primary' : 'ghost'}`, href: `${here}?view=audit` }, 'شهادة الإتمام والتدقيق')),
+          h('button', { class: 'btn gold', onclick: () => window.print() }, 'طباعة / حفظ PDF'),
+          h('a', { class: 'btn', href: `/api/session/${token}/export` }, 'ملف الإثبات (JSON)')),
+        audit ? auditDoc : contractDoc),
       footer());
   }
 
