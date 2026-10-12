@@ -98,7 +98,7 @@
 
   // البسملة تُعرض بالرسم الخطي المزخرف (﷽) كما في العقود المطبوعة، ويبقى النص المقروء لقارئات الشاشة.
   const BASMALA = /^(بسم الله الرحمن الرحيم|\uFDFD)$/;
-  const basmala = () => h('p', { class: 'basmala', 'aria-label': 'بسم الله الرحمن الرحيم' }, '\uFDFD');
+  const basmala = () => h('p', { class: 'basmala' }, h('img', { src: '/assets/basmala.png', alt: 'بسم الله الرحمن الرحيم' }));
 
   function renderBody(text) {
     const out = [];
