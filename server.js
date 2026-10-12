@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Store } = require('./lib/store');
 const C = require('./lib/contracts');
+const S = require('./lib/session');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -111,34 +112,6 @@ setInterval(() => {
 
 // ---------- الواجهة البرمجية ----------
 
-function links(req, c) {
-  const base = baseUrl(req);
-  return {
-    adminUrl: `${base}/admin/${c.adminToken}`,
-    parties: c.parties.map((p) => ({ id: p.id, name: p.name, role: p.role, idNumber: p.idNumber, email: p.email, phone: p.phone, signUrl: `${base}/sign/${p.token}` })),
-  };
-}
-
-function session(req, token) {
-  const s = store.resolve(token);
-  if (!s) throw new C.AppError(404, 'NOT_FOUND', 'الرابط غير صحيح أو منتهي.');
-  return s;
-}
-
-function sessionPayload(req, contract, who) {
-  const v = C.view(contract, who);
-  if (who.type === 'owner') {
-    const l = links(req, contract);
-    v.adminUrl = l.adminUrl;
-    for (const p of v.parties) {
-      p.signUrl = l.parties.find((x) => x.id === p.id).signUrl;
-      delete p.token;
-    }
-  }
-  v.verifyUrl = `${baseUrl(req)}/verify/${contract.id}`;
-  return v;
-}
-
 async function api(req, res, parts) {
   const ctx = ctxOf(req);
   const method = req.method;
@@ -148,7 +121,7 @@ async function api(req, res, parts) {
     const body = await readJson(req);
     const c = C.createContract(body, ctx);
     await store.create(c);
-    return json(res, 201, { id: c.id, ...links(req, c) });
+    return json(res, 201, { id: c.id, ...S.links(baseUrl(req), c) });
   }
 
   if (parts[0] === 'verify' && parts.length === 2 && method === 'GET') {
@@ -158,54 +131,21 @@ async function api(req, res, parts) {
     return json(res, 200, C.publicSummary(c));
   }
 
-  if (parts[0] === 'session' && parts[1]) {
-    const s = session(req, parts[1]);
+  if (parts[0] === 'session' && parts[1] && parts.length <= 3) {
+    const s = store.resolve(parts[1]);
+    if (!s) throw new C.AppError(404, 'NOT_FOUND', 'الرابط غير صحيح أو منتهي.');
     const who = s.type === 'owner' ? { type: 'owner' } : { type: 'party', partyId: s.partyId };
     const action = parts[2] || '';
-
-    if (method === 'GET' && action === '') {
-      let contract = s.contract;
-      if (who.type === 'party' && C.status(contract) !== C.STATUS.COMPLETED) {
-        const v = C.currentVersion(contract);
-        const p = contract.parties.find((x) => x.id === who.partyId);
-        if (!p.viewedVersions.includes(v.n)) {
-          ({ contract } = await store.update(contract.id, (d) => C.markViewed(d, who.partyId, ctx)));
-        }
-      }
-      return json(res, 200, sessionPayload(req, contract, who));
-    }
-
-    if (method === 'GET' && action === 'export') {
-      const c = s.contract;
-      const data = {
-        format: 'aqd-evidence/1',
-        exportedAt: new Date().toISOString(),
-        summary: C.publicSummary(c),
-        contract: C.view(c, { type: 'export' }),
-      };
-      delete data.contract.me;
-      delete data.contract.role;
-      return send(res, 200, JSON.stringify(data, null, 2), {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Content-Disposition': `attachment; filename="aqd-${c.id}-evidence.json"`,
-        'Cache-Control': 'no-store',
-      });
-    }
-
+    let body = {};
     if (method === 'POST') {
       rateLimit(`post:${parts[1]}`, 30, 60000);
-      const body = await readJson(req);
-      const ops = {
-        sign: () => { if (who.type !== 'party') throw new C.AppError(403, 'FORBIDDEN', 'التوقيع متاح للأطراف فقط.'); return (d) => C.sign(d, who.partyId, body, ctx); },
-        'request-changes': () => { if (who.type !== 'party') throw new C.AppError(403, 'FORBIDDEN', 'طلب التعديل متاح للأطراف فقط.'); return (d) => C.requestChanges(d, who.partyId, body, ctx); },
-        amend: () => (d) => C.amend(d, who, body, ctx),
-        void: () => { if (who.type !== 'owner') throw new C.AppError(403, 'FORBIDDEN', 'الإلغاء متاح لمنشئ العقد فقط.'); return (d) => C.voidContract(d, body, ctx); },
-      };
-      if (!Object.hasOwn(ops, action)) throw new C.AppError(404, 'NOT_FOUND', 'عملية غير معروفة');
-      const fn = ops[action]();
-      const { contract } = await store.update(s.contract.id, fn);
-      return json(res, 200, sessionPayload(req, contract, who));
+      body = await readJson(req);
     }
+    const fn = S.mutationFor(s.contract, who, method, action, body, ctx);
+    let contract = s.contract;
+    if (fn) ({ contract } = await store.update(contract.id, fn));
+    const r = S.respond(baseUrl(req), contract, who, method, action);
+    return r.json ? json(res, r.status, r.json) : send(res, r.status, r.body, r.headers);
   }
 
   throw new C.AppError(404, 'NOT_FOUND', 'غير موجود');

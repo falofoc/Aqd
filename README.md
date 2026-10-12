@@ -44,7 +44,18 @@ npm start            # http://localhost:3000
 npm test             # الاختبارات
 ```
 
-### النشر المجاني على Oracle Cloud (موصى به)
+### النشر المجاني على Cloudflare (موصى به — تحديث تلقائي)
+مجاني، وسريع جداً، ولا يتوقف عند عدم الاستخدام، ويُنشر تلقائياً مع كل تحديث على GitHub. كل عقد يُحفظ في Durable Object خاص به.
+
+إعداد لمرة واحدة:
+1. أنشئ حساباً مجانياً في [Cloudflare](https://dash.cloudflare.com/sign-up) (لا يتطلب بطاقة).
+2. من القائمة: **Workers & Pages → Create → Import a repository**.
+3. اربط حساب GitHub واختر المستودع **falofoc/Aqd**، واترك الإعدادات كما هي (أمر النشر: `npx wrangler deploy`).
+4. اضغط **Deploy**، وستحصل على رابط مثل `https://aqd.<اسمك>.workers.dev`.
+
+بعدها أي تحديث يُرفع إلى الفرع الافتراضي في GitHub يُنشر خلال دقيقة تقريباً دون أي تدخل.
+
+### النشر المجاني على Oracle Cloud (خادم كامل)
 1. أنشئ حساباً في [Oracle Cloud Free Tier](https://www.oracle.com/cloud/free/)، واختر منطقة قريبة كـ **Jeddah** إن ظهرت لك.
 2. أنشئ خادماً (Create a VM instance) بنظام **Ubuntu 24.04** وشكل **VM.Standard.A1.Flex** (أو **E2.1.Micro**، وهو كافٍ للأداة).
 3. من إعدادات الشبكة: `Virtual Cloud Network → Security List → Add Ingress Rules`، وافتح المنفذين **80** و **443** من `0.0.0.0/0`.
@@ -76,7 +87,9 @@ docker compose up -d --build
 
 ## البنية
 ```
-server.js            خادم HTTP + الواجهة البرمجية + ترويسات الأمان
+server.js            خادم Node (للخوادم و Docker)
+cloudflare/worker.js نسخة Cloudflare Workers + Durable Objects
+lib/session.js       منطق طلبات الروابط المشترك بين البيئتين
 lib/contracts.js     منطق العقد: الإصدارات، التوقيع، طلبات التعديل، سجل التدقيق
 lib/store.js         تخزين ملفات JSON بكتابة ذرّية وقفل لكل عقد
 public/              واجهة عربية (RTL) بدون مكتبات: لوحة توقيع، مقارنة إصدارات، شهادة قابلة للطباعة

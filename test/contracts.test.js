@@ -85,3 +85,11 @@ test('مقارنة الأسطر', () => {
   const d = diffLines('أ\nب\nج', 'أ\nد\nج');
   assert.deepEqual(d.map((x) => x.type), ['same', 'del', 'add', 'same']);
 });
+
+test('كل رابط يبدأ بمعرّف العقد ليصل مباشرة إلى عقده', () => {
+  const c = make();
+  assert.equal(c.id.length, C.ID_LENGTH);
+  for (const t of [c.adminToken, ...c.parties.map((p) => p.token)]) {
+    assert.ok(t.startsWith(c.id) && t.length > C.ID_LENGTH);
+  }
+});
