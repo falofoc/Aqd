@@ -158,7 +158,7 @@
     for (const p of parties || []) {
       if (!p.role || !p.idNumber) continue;
       const re = new RegExp(`^(.*${escRe(p.role)}\\s*:.*رقم\\s*الهوية\\s*:)[ \\t]*$`, 'm');
-      out = out.replace(re, `$1 ${p.idNumber}`);
+      out = out.replace(re, `$1 ${String(p.idNumber).replace(/[0-9]/g, (d) => String.fromCharCode(0x0660 + +d))}`);
     }
     return out;
   }
