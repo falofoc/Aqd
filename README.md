@@ -44,6 +44,20 @@ npm start            # http://localhost:3000
 npm test             # الاختبارات
 ```
 
+### النشر المجاني على Oracle Cloud (موصى به)
+1. أنشئ حساباً في [Oracle Cloud Free Tier](https://www.oracle.com/cloud/free/)، واختر منطقة قريبة كـ **Jeddah** إن ظهرت لك.
+2. أنشئ خادماً (Create a VM instance) بنظام **Ubuntu 24.04** وشكل **VM.Standard.A1.Flex** (أو **E2.1.Micro**، وهو كافٍ للأداة).
+3. من إعدادات الشبكة: `Virtual Cloud Network → Security List → Add Ingress Rules`، وافتح المنفذين **80** و **443** من `0.0.0.0/0`.
+4. ادخل للخادم بـ SSH ونفّذ أمراً واحداً:
+```bash
+curl -fsSL https://raw.githubusercontent.com/falofoc/Aqd/ccr-b6af62a2-hn8lby/deploy/install.sh | sudo bash
+```
+سيعطيك رابطاً جاهزاً بشهادة HTTPS مثل `https://1.2.3.4.sslip.io`. ولو عندك نطاق خاص، وجّه سجل A إلى IP الخادم ثم استخدم:
+```bash
+curl -fsSL https://raw.githubusercontent.com/falofoc/Aqd/ccr-b6af62a2-hn8lby/deploy/install.sh | sudo DOMAIN=sign.example.com bash
+```
+السكربت ينصّب Node.js و HTTPS تلقائياً عبر Caddy ونسخاً احتياطياً يومياً، وللتحديث لاحقاً: `sudo aqd-update`.
+
 ### النشر بـ Docker
 ```bash
 docker compose up -d --build
