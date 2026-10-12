@@ -1,0 +1,15 @@
+services:
+  aqd:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # ضع هنا عنوان موقعك العام ليُستخدم في روابط التوقيع
+      BASE_URL: "https://sign.example.com"
+      # فعّله إذا كان التطبيق خلف Nginx/Caddy/Cloudflare
+      TRUST_PROXY: "1"
+    volumes:
+      - aqd-data:/data
+volumes:
+  aqd-data:
