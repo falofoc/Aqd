@@ -139,7 +139,11 @@
       const arabic = /[\u0660-\u0669]/.test(year);
       const value = dateParts(date, suffix === 'هـ' ? 'islamic-umalqura' : 'gregory', arabic);
       const day = suffix === 'هـ' && /يوم\s*:?\s*$/.test(whole.slice(0, offset)) ? `${weekday} ` : '';
-      return ` ${day}${value}${suffix}`;
+      // بعد التاريخ الميلادي تُضاف ساعة آخر توقيع (اعتماد العقد) بتوقيت الرياض.
+      const time = suffix === 'م' ? ` الساعة ${new Intl.DateTimeFormat(`ar-u-nu-${arabic ? 'arab' : 'latn'}`, {
+        timeZone: DATE_TZ, hour: 'numeric', minute: '2-digit', hour12: true,
+      }).format(date)}` : '';
+      return ` ${day}${value}${suffix}${time}`;
     });
   }
 
@@ -157,8 +161,9 @@
 
   // الورقة تعرض نص العقد فقط: لا أرقام ولا بصمات ولا تواريخ من خارج النص.
   function paper(v, contract, extra) {
-    const body = contract.status === 'completed'
-      ? fillIdNumbers(fillCompletionDate(v.body, contract.completedAt), contract.parties) : v.body;
+    // رقم هوية كل طرف يظهر في سطره بمجرد توقيعه، والتاريخ والساعة عند اكتمال التوقيعات.
+    const withIds = fillIdNumbers(v.body, contract.parties);
+    const body = contract.status === 'completed' ? fillCompletionDate(withIds, contract.completedAt) : withIds;
     return h('article', { class: 'paper' },
       h('h2', { class: 'doc-title' }, v.title),
       renderBody(body),
