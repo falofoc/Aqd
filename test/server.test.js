@@ -28,7 +28,7 @@ test('رحلة كاملة عبر HTTP: إنشاء، توقيع، تعديل، إ
     const s1 = await call('GET', `/api/session/${tokens[0]}`);
     assert.equal(s1.data.role, 'party');
     assert.equal(s1.data.parties[1].token, undefined, 'لا تُكشف روابط الآخرين');
-    const sign = async (t, hash) => call('POST', `/api/session/${t}/sign`, { versionHash: hash, consent: true, image: IMG });
+    const sign = async (t, hash) => call('POST', `/api/session/${t}/sign`, { versionHash: hash, consent: true, image: IMG, idNumber: '1012345678' });
 
     await sign(tokens[0], s1.data.current.hash);
     await sign(tokens[1], s1.data.current.hash);

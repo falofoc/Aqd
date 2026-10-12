@@ -143,9 +143,22 @@
     });
   }
 
+  // تُملأ خانة «رقم الهوية:» الفارغة في سطر كل طرف برقم الهوية الذي أدخله عند التوقيع.
+  const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  function fillIdNumbers(text, parties) {
+    let out = text;
+    for (const p of parties || []) {
+      if (!p.role || !p.idNumber) continue;
+      const re = new RegExp(`^(.*${escRe(p.role)}\\s*:.*رقم\\s*الهوية\\s*:)[ \\t]*$`, 'm');
+      out = out.replace(re, `$1 ${p.idNumber}`);
+    }
+    return out;
+  }
+
   // الورقة تعرض نص العقد فقط: لا أرقام ولا بصمات ولا تواريخ من خارج النص.
   function paper(v, contract, extra) {
-    const body = contract.status === 'completed' ? fillCompletionDate(v.body, contract.completedAt) : v.body;
+    const body = contract.status === 'completed'
+      ? fillIdNumbers(fillCompletionDate(v.body, contract.completedAt), contract.parties) : v.body;
     return h('article', { class: 'paper' },
       h('h2', { class: 'doc-title' }, v.title),
       renderBody(body),
@@ -708,8 +721,12 @@
     tabBtns.draw = h('button', { type: 'button', class: 'on', onclick: () => setMode('draw') }, 'ارسم توقيعك');
     tabBtns.type = h('button', { type: 'button', onclick: () => setMode('type') }, 'اكتب اسمك');
 
+    const needId = !me.idNumber;
+    const idInput = needId ? h('input', { class: 'input', dir: 'ltr', inputmode: 'numeric', maxlength: 14, placeholder: '1xxxxxxxxx', autocomplete: 'off' }) : null;
+    const toLatin = (x) => x.replace(/[\u0660-\u0669]/g, (c) => String(c.charCodeAt(0) - 0x0660)).replace(/[\u06F0-\u06F9]/g, (c) => String(c.charCodeAt(0) - 0x06F0)).replace(/[\s-]/g, '');
     const consent = h('input', { type: 'checkbox' });
     const btn = h('button', { class: 'btn gold lg block', onclick: async () => {
+      if (needId && !/^[12][0-9]{9}$/.test(toLatin(idInput.value))) return toast('يرجى إدخال رقم هويتك (10 أرقام يبدأ بـ 1 أو 2)', 'bad');
       if (!consent.checked) return toast('يرجى الإقرار بالموافقة أولاً', 'bad');
       if (mode === 'draw' && !pad.dirty) return toast('يرجى رسم توقيعك أولاً', 'bad');
       if (mode === 'type' && !nameInput.value.trim()) return toast('يرجى كتابة اسمك', 'bad');
@@ -719,6 +736,7 @@
         const image = mode === 'draw' ? pad.toPNG() : await typedSignaturePNG(nameInput.value.trim());
         page.data = await api('POST', `/api/session/${page.token}/sign`, {
           versionHash: v.hash, consent: true, method: mode, image, typedName: mode === 'type' ? nameInput.value : undefined,
+          idNumber: needId ? toLatin(idInput.value) : undefined,
         });
         renderContract();
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -739,6 +757,7 @@
       h('p', { class: 'muted small', style: 'margin-top:-6px' }, `أنت توقّع على الإصدار ${v.n} تحديداً. أي تعديل لاحق على النص سيُلغي هذا التوقيع ويطلب إعادة التوقيع.`),
       h('div', { class: 'tabs', role: 'tablist' }, tabBtns.draw, tabBtns.type),
       pad.el, typeBox,
+      needId ? h('label', { class: 'field' }, h('span', null, 'رقم هويتك الوطنية / الإقامة (يظهر في العقد الموقّع)'), idInput) : null,
       h('label', { class: 'check consent' }, consent, h('span', null,
         `أقرّ بأنني ${me.name} قد اطّلعت على كامل نص «${v.title}» (الإصدار ${v.n}، البصمة `,
         h('span', { class: 'mono' }, v.hash.slice(0, 12)),

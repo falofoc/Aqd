@@ -9,7 +9,7 @@ const make = () => C.createContract({
   title: 'عقد شراكة', body: '# البند الأول\nنص', ownerName: 'المنشئ',
   parties: ['أحمد', 'سارة', 'خالد', 'منى'].map((name) => ({ name, role: 'شريك' })),
 });
-const signAs = (c, pid) => C.sign(c, pid, { versionHash: C.currentVersion(c).hash, consent: true, method: 'draw', image: IMG });
+const signAs = (c, pid) => C.sign(c, pid, { versionHash: C.currentVersion(c).hash, consent: true, method: 'draw', image: IMG, idNumber: '1012345678' });
 
 test('يكتمل العقد فقط عندما يوقّع الأطراف الأربعة على النسخة نفسها', () => {
   const c = make();
@@ -92,4 +92,17 @@ test('كل رابط يبدأ بمعرّف العقد ليصل مباشرة إل�
   for (const t of [c.adminToken, ...c.parties.map((p) => p.token)]) {
     assert.ok(t.startsWith(c.id) && t.length > C.ID_LENGTH);
   }
+});
+
+test('كل طرف يُدخل رقم هويته بنفسه عند التوقيع', () => {
+  const c = C.createContract({ title: 'ع', body: 'نص', parties: [{ name: 'أ', role: 'الطرف الأول' }, { name: 'ب', role: 'الطرف الثاني' }] });
+  const v = C.currentVersion(c);
+  const base = { versionHash: v.hash, consent: true, method: 'draw', image: IMG };
+  assert.throws(() => C.sign(c, 'p1', base), { code: 'REQUIRED' });
+  assert.throws(() => C.sign(c, 'p1', { ...base, idNumber: '12345' }), { code: 'INVALID_ID' });
+  C.sign(c, 'p1', { ...base, idNumber: '١٠١٢٣٤٥٦٧٨' });
+  const view = C.view(c, { type: 'party', partyId: 'p2' });
+  assert.equal(view.parties[0].idNumber, '1012345678');
+  assert.equal(view.parties[1].idNumber, '');
+  assert.equal(C.currentVersion(c).hash, v.hash);
 });
