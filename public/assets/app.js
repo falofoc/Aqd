@@ -96,6 +96,10 @@
       .map((part) => (/^\*\*[^*]+\*\*$/.test(part) ? h('strong', null, part.slice(2, -2)) : part));
   }
 
+  // البسملة تُعرض بالرسم الخطي المزخرف (﷽) كما في العقود المطبوعة، ويبقى النص المقروء لقارئات الشاشة.
+  const BASMALA = /^(بسم الله الرحمن الرحيم|\uFDFD)$/;
+  const basmala = () => h('p', { class: 'basmala', 'aria-label': 'بسم الله الرحمن الرحيم' }, '\uFDFD');
+
   function renderBody(text) {
     const out = [];
     let list = null;
@@ -110,7 +114,7 @@
       if (!line) continue;
       let m;
       if (line.startsWith('#')) out.push(h('h3', null, inline(line.replace(/^#+\s*/, ''))));
-      else if (/^بسم الله الرحمن الرحيم$/.test(line)) out.push(h('p', { class: 'basmala' }, line));
+      else if (BASMALA.test(line)) out.push(basmala());
       else if ((m = line.match(/^([0-9\u0660-\u0669]+)\s*[.)\-]\s*(.*)$/))) out.push(h('p', { class: 'num-item' }, h('span', { class: 'n' }, `${m[1]}.`), h('span', null, inline(m[2]))));
       else out.push(h('p', null, inline(line)));
     }
@@ -164,9 +168,14 @@
     // رقم هوية كل طرف يظهر في سطره بمجرد توقيعه، والتاريخ والساعة عند اكتمال التوقيعات.
     const withIds = fillIdNumbers(v.body, contract.parties);
     const body = contract.status === 'completed' ? fillCompletionDate(withIds, contract.completedAt) : withIds;
+    // إذا بدأ النص بالبسملة تُوضع فوق العنوان كما في النسخة الورقية.
+    const lines = body.split('\n');
+    const first = lines.findIndex((l) => l.trim());
+    const lead = first >= 0 && BASMALA.test(lines[first].trim());
     return h('article', { class: 'paper' },
+      lead ? basmala() : null,
       h('h2', { class: 'doc-title' }, v.title),
-      renderBody(body),
+      renderBody(lead ? lines.slice(first + 1).join('\n') : body),
       extra || null);
   }
 
