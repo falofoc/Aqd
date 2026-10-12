@@ -115,7 +115,7 @@ function links(req, c) {
   const base = baseUrl(req);
   return {
     adminUrl: `${base}/admin/${c.adminToken}`,
-    parties: c.parties.map((p) => ({ id: p.id, name: p.name, role: p.role, email: p.email, phone: p.phone, signUrl: `${base}/sign/${p.token}` })),
+    parties: c.parties.map((p) => ({ id: p.id, name: p.name, role: p.role, idNumber: p.idNumber, email: p.email, phone: p.phone, signUrl: `${base}/sign/${p.token}` })),
   };
 }
 

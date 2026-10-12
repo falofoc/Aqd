@@ -90,6 +90,12 @@
 
   // ---------- عرض نص العقد ----------
   // صيغة مبسطة: "# " عنوان بند، "- " عنصر قائمة، سطر فارغ يفصل الفقرات.
+  // **نص** يُعرض بخط عريض.
+  function inline(line) {
+    return line.split(/(\*\*[^*]+\*\*)/).filter(Boolean)
+      .map((part) => (/^\*\*[^*]+\*\*$/.test(part) ? h('strong', null, part.slice(2, -2)) : part));
+  }
+
   function renderBody(text) {
     const out = [];
     let list = null;
@@ -97,13 +103,16 @@
       const line = raw.trim();
       if (line.startsWith('- ') || line.startsWith('• ')) {
         if (!list) { list = h('ul'); out.push(list); }
-        list.appendChild(h('li', null, line.slice(2)));
+        list.appendChild(h('li', null, inline(line.slice(2))));
         continue;
       }
       list = null;
       if (!line) continue;
-      if (line.startsWith('#')) out.push(h('h3', null, line.replace(/^#+\s*/, '')));
-      else out.push(h('p', null, line));
+      let m;
+      if (line.startsWith('#')) out.push(h('h3', null, inline(line.replace(/^#+\s*/, ''))));
+      else if (/^بسم الله الرحمن الرحيم$/.test(line)) out.push(h('p', { class: 'basmala' }, line));
+      else if ((m = line.match(/^([0-9\u0660-\u0669]+)\s*[.)\-]\s*(.*)$/))) out.push(h('p', { class: 'num-item' }, h('span', { class: 'n' }, `${m[1]}.`), h('span', null, inline(m[2]))));
+      else out.push(h('p', null, inline(line)));
     }
     return out;
   }
@@ -255,6 +264,7 @@
       h('span', { class: 'num' }, i + 1),
       h('input', { class: 'input', name: 'name', placeholder: 'الاسم الكامل *', value: data.name || '', required: true, maxlength: 120, 'aria-label': `اسم الطرف ${i + 1}` }),
       h('input', { class: 'input', name: 'role', placeholder: 'الصفة (مثال: شريك)', value: data.role || '', maxlength: 120 }),
+      h('input', { class: 'input', name: 'idNumber', dir: 'ltr', inputmode: 'numeric', placeholder: 'رقم الهوية', value: data.idNumber || '', maxlength: 30 }),
       h('input', { class: 'input', name: 'email', type: 'email', dir: 'ltr', placeholder: 'email@example.com', value: data.email || '', maxlength: 200 }),
       h('input', { class: 'input', name: 'phone', type: 'tel', dir: 'ltr', placeholder: '9665XXXXXXXX', value: data.phone || '', maxlength: 40 }),
       h('button', { type: 'button', class: 'icon-btn', title: 'حذف الطرف', 'aria-label': 'حذف الطرف', onclick: onRemove }, '✕'));
@@ -281,7 +291,7 @@
     }
 
     const title = h('input', { class: 'input', name: 'title', required: true, maxlength: 200, placeholder: 'مثال: عقد شراكة في مشروع …' });
-    const body = h('textarea', { class: 'textarea', name: 'body', required: true, placeholder: 'اكتب نص العقد هنا…\n\nاستخدم "# " في بداية السطر لعنوان البند، و "- " للعناصر.' });
+    const body = h('textarea', { class: 'textarea', name: 'body', required: true, placeholder: 'اكتب نص العقد هنا أو الصقه…\n\nالتنسيق: "# " لعنوان البند، "- " للنقاط، "1. " للفقرات المرقّمة، و**نص** للخط العريض.' });
     const owner = h('input', { class: 'input', name: 'owner', maxlength: 120, placeholder: 'اسمك (يظهر في سجل العقد)' });
     const allowEdits = h('input', { type: 'checkbox', checked: true });
     const submit = h('button', { type: 'submit', class: 'btn gold lg' }, 'إنشاء العقد وتوليد روابط التوقيع');
@@ -294,7 +304,7 @@
       try {
         const res = await api('POST', '/api/contracts', {
           title: title.value, body: body.value, ownerName: owner.value, allowPartyEdits: allowEdits.checked,
-          parties: parties.map((p) => ({ name: p.name, role: p.role, email: p.email, phone: p.phone })),
+          parties: parties.map((p) => ({ name: p.name, role: p.role, idNumber: p.idNumber, email: p.email, phone: p.phone })),
         });
         remember({ title: title.value.trim(), url: new URL(res.adminUrl).pathname, createdAt: new Date().toISOString() });
         renderCreated(res, title.value.trim());
@@ -513,7 +523,7 @@
       h('div', { class: `avatar ${cls}` }, initials(p.name), cls ? h('span', { class: 'badge' }, cls === 'ok' ? '✓' : '!') : null),
       h('div', { class: 'who' },
         h('b', null, p.name, p.isMe ? ' (أنت)' : ''),
-        h('small', null, [p.role, label].filter(Boolean).join(' · ')),
+        h('small', null, [p.role, p.idNumber && `هوية ${p.idNumber}`, label].filter(Boolean).join(' · ')),
         p.objection ? h('div', { class: 'party-obj' }, `«${p.objection.reason}»`) : null,
         isOwner && p.signUrl && d.status !== 'completed' && d.status !== 'void'
           ? h('div', { class: 'tools' }, shareTools(d.current.title, p)) : null));
@@ -650,6 +660,7 @@
       s ? h('img', { src: s.image, alt: `توقيع ${p.name}` }) : h('div', { class: 'empty' }, 'بانتظار التوقيع'),
       h('b', null, p.name),
       h('small', null, p.role || ''),
+      p.idNumber ? h('small', null, `هوية: ${p.idNumber}`) : null,
       s ? h('small', null, fmt(s.signedAt)) : null);
   }
 
@@ -792,7 +803,7 @@
     const rows = d.parties.map((p) => {
       const s = d.signatures.find((x) => x.partyId === p.id);
       return h('tr', null,
-        h('td', null, p.name), h('td', null, p.role || '—'),
+        h('td', null, p.name), h('td', null, p.role || '—'), h('td', { class: 'mono' }, p.idNumber || '—'),
         h('td', null, s ? fmt(s.signedAt) : '—'),
         h('td', null, s ? (s.method === 'draw' ? 'رسم يدوي' : 'اسم مكتوب') : '—'),
         h('td', { class: 'mono' }, s && s.ip ? s.ip : '—'));
@@ -822,7 +833,7 @@
           h('div', { class: 'page-break' }),
           h('h2', null, 'شهادة إتمام التوقيع'),
           h('table', null,
-            h('thead', null, h('tr', null, ['الطرف', 'الصفة', 'وقت التوقيع', 'طريقة التوقيع', 'عنوان IP'].map((t) => h('th', null, t)))),
+            h('thead', null, h('tr', null, ['الطرف', 'الصفة', 'رقم الهوية', 'وقت التوقيع', 'طريقة التوقيع', 'عنوان IP'].map((t) => h('th', null, t)))),
             h('tbody', null, rows)),
           h('h2', null, 'سجل التدقيق'),
           h('p', { class: 'small', style: 'margin-top:0' }, d.auditChainValid
