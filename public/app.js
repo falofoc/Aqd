@@ -33,10 +33,10 @@ const errBox = (e) => { $('#e').innerHTML = `<div class="err">${esc(e.message ||
 function nav() {
   const h = location.hash || '#';
   const links = !ME
-    ? [['#login', 'Sign in'], ['#register', 'Register'], ['#guide', 'User guide'], ['#sites', 'External sites'], ['#refs', 'References']]
+    ? [['#catalog', 'Requirements'], ['#login', 'Sign in'], ['#register', 'Register'], ['#guide', 'User guide'], ['#sites', 'External sites'], ['#refs', 'References']]
     : ME.role === 'admin'
       ? [['#admin/users', 'Trainees'], ['#admin/reqs', 'Requirements'], ['#admin/subs', 'Submissions'], ['#guide', 'Guide'], ['#refs', 'References']]
-      : [['#dash', 'My requirements'], ['#guide', 'User guide'], ['#sites', 'External sites'], ['#refs', 'References']];
+      : [['#dash', 'My requirements'], ['#catalog', 'All requirements'], ['#guide', 'User guide'], ['#sites', 'External sites'], ['#refs', 'References']];
   $('#nav').innerHTML = links.map(([k, t]) => `<a href="${k}" class="${h.startsWith(k) ? 'on' : ''}">${t}</a>`).join('') +
     (ME ? `<button id="out">Sign out (${esc(ME.name)})</button>` : '');
   if (ME) $('#out').onclick = async () => { await api('logout', { method: 'POST' }); ME = null; location.hash = '#login'; };
@@ -274,6 +274,36 @@ function grade(s, R) {
   $('#dlg').showModal();
 }
 
+// ---------- Public requirements catalog ----------
+
+let catalogLevel = 'R1';
+async function viewCatalog() {
+  const { levels, requirements } = await api('catalog');
+  if (ME && ME.role === 'trainee' && catalogLevel === 'R1') catalogLevel = ME.level;
+  app.innerHTML = `<h1>Promotion requirements R1–R4</h1>
+  <p class="muted">Everything required at each level, with dates, the file to submit, the steps and how it is graded. ${ME ? '' : '<a href="#register">Register</a> to submit.'}</p>
+  <div class="filters" id="lv">${['R1', 'R2', 'R3', 'R4'].map((l) => `<button data-l="${l}" class="${l === catalogLevel ? 'pri' : ''}">${l}</button>`).join('')}<input id="q" placeholder="Search"></div>
+  <div class="box" id="ld"></div><div class="list" id="l"></div>`;
+  const draw = () => {
+    const q = $('#q').value.toLowerCase();
+    $('#lv').querySelectorAll('[data-l]').forEach((b) => b.classList.toggle('pri', b.dataset.l === catalogLevel));
+    const lv = levels[catalogLevel] || {};
+    const list = requirements.filter((r) => r.level === catalogLevel && (!q || r.title.toLowerCase().includes(q)));
+    $('#ld').innerHTML = `<h2>${esc(lv.title || catalogLevel)}</h2><p>${esc(lv.desc || '')}</p><p class="muted">${list.length} requirement${list.length === 1 ? '' : 's'}</p>`;
+    $('#l').innerHTML = list.map((r) => `<button class="req" data-id="${r.id}"><span class="win">${esc(r.window)}</span><span>${esc(r.title)}<br><small class="muted">${fmt(r.openAt)} → ${fmt(r.closeAt)}</small></span><span class="tag t-${r.state}">${STATE[r.state]}</span></button>`).join('') || '<p class="muted">Nothing here</p>';
+    $('#l').querySelectorAll('.req').forEach((b) => b.onclick = () => {
+      $('#dlgBody').innerHTML = `${reqDetails(requirements.find((x) => x.id === b.dataset.id))}
+        <div class="bar">${ME ? '' : '<a class="btn pri" href="#register">Register to submit</a>'}<button id="x">Close</button></div>`;
+      $('#x').onclick = () => $('#dlg').close();
+      $('#dlgBody').querySelector('a.btn')?.addEventListener('click', () => $('#dlg').close());
+      $('#dlg').showModal();
+    });
+  };
+  $('#lv').querySelectorAll('[data-l]').forEach((b) => b.onclick = () => { catalogLevel = b.dataset.l; draw(); });
+  $('#q').oninput = draw;
+  draw();
+}
+
 // ---------- Information pages ----------
 
 function viewGuide() {
@@ -340,7 +370,7 @@ async function route() {
   const h = (location.hash || '#').slice(1);
   if (ME === null) { try { const r = await api('me'); ME = r.user; LEVELS = r.levels; } catch { ME = false; } }
   nav();
-  const pub = { login: viewLogin, register: viewRegister, guide: viewGuide, sites: viewSites, refs: viewRefs };
+  const pub = { catalog: viewCatalog, login: viewLogin, register: viewRegister, guide: viewGuide, sites: viewSites, refs: viewRefs };
   try {
     if (pub[h]) return await pub[h]();
     if (!ME) return viewLogin();

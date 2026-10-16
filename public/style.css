@@ -81,3 +81,5 @@ input,select,textarea{font-size:16px} /* stops iOS from zooming into fields */
   table.stack tr.tot th{border:0;padding:0}
   table.stack td:last-child:not([data-label]) button{width:100%;margin-top:4px}
 }
+#lv button{flex:1 1 0;min-width:0}
+#lv input{flex:1 1 100%}
