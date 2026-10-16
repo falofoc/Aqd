@@ -60,7 +60,7 @@ After=network.target
 
 [Service]
 User=aqd
-WorkingDirectory=$APP_DIR
+WorkingDirectory=$APP_DIR/aqd
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=3000

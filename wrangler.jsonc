@@ -1,19 +1,13 @@
 {
-  // نشر «عَقد» على Cloudflare Workers — يُنشر تلقائياً مع كل تحديث على GitHub.
+  // Promotion requirements portal on Cloudflare Workers (free plan).
+  // D1 and KV are created automatically on the first deploy.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "aqd",
+  "name": "promotion-portal",
   "main": "cloudflare/worker.js",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
-  "assets": {
-    "directory": "./public",
-    "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-    "run_worker_first": true
-  },
-  "durable_objects": {
-    "bindings": [{ "name": "CONTRACTS", "class_name": "ContractObject" }]
-  },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ContractObject"] }],
+  "assets": { "directory": "./public", "binding": "ASSETS" },
+  "d1_databases": [{ "binding": "DB", "database_name": "promotion-portal" }],
+  "kv_namespaces": [{ "binding": "FILES" }],
   "observability": { "enabled": true }
 }

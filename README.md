@@ -1,103 +1,63 @@
-# عَقد — توقيع العقود إلكترونياً بين الشركاء
+# Promotion Requirements Portal (Preventive Medicine R1–R4)
 
-أداة ويب خفيفة لتوقيع عقد واحد بين عدة شركاء (افتراضياً **4**، ومن 2 إلى 10) والحصول على **نسخة موقّعة نهائية** أونلاين.
+A web app with no runtime dependencies that runs on Cloudflare Workers (free) or any Node.js ≥ 20 server. for receiving and grading trainee requirements.
 
-## المبدأ الأساسي
-> **لا يكتمل العقد إلا إذا وقّع جميع الأطراف على النسخة نفسها حرفياً.**
+## Flow
+1. **Registration:** the trainee registers (name, email, mobile, SCFHS number, level, center) → account is *awaiting activation*.
+2. **Activation:** the administration reviews, activates or disables the account, and sets the level.
+3. **Requirements:** trainees see only their level's requirements. Each has:
+   - a submission window (open/close, Riyadh time) plus a late period (14 days by default) and a countdown;
+   - instructions, required file type and size, how to submit, references;
+   - a 100-point rubric: content criteria (90) + timeliness (10, computed automatically).
+4. **Upload:** only inside the window, with file type and size checks; replaceable until closing or grading.
+5. **Grading:** the admin downloads the file and rates each criterion (Excellent 100% · Adequate 70% · Weak 40% · Absent 0%); the trainee sees the score and feedback.
 
-- كل نسخة من النص لها **بصمة SHA-256**، والتوقيع مربوط بتلك البصمة.
-- **أي تعديل** يُنشئ إصداراً جديداً ويُلغي كل التوقيعات السابقة، ويُطلب من الجميع إعادة التوقيع (مع عرض الفروقات لكل طرف).
-- يمكن لأي طرف تقديم **«طلب تعديل»** بسببه، فيتوقف الاكتمال حتى يُعدَّل النص.
-- عند توقيع آخر طرف يُقفل العقد تلقائياً وتصدر **النسخة الموقعة** مع **شهادة إتمام** و**سجل تدقيق**.
+Public pages: user guide, external registration sites (SCFHS, CDC TRAIN, OpenWHO, NCBE, PROSPERO…), references to download.
 
-## كيف يعمل
-1. **أنشئ العقد**: اكتب النص (أو استخدم نموذج عقد الشراكة الجاهز) وأدخل أسماء الشركاء.
-2. **شارك الروابط**: يحصل كل شريك على رابط شخصي سري (نسخ / واتساب / بريد)، وتحصل أنت على رابط إدارة.
-3. **راجع ووقّع**: يوقّع الشريك بالرسم أو بكتابة اسمه بعد الإقرار بالموافقة على الإصدار المحدد.
-4. **النسخة النهائية**: «طباعة / حفظ PDF» للعقد الموقّع، وفيه نص العقد والتوقيعات فقط دون أي بصمات أو أرقام أو تواريخ من خارج النص. أما شهادة الإتمام وسجل التدقيق فوثيقة مستقلة، ومعهما «ملف الإثبات JSON» ورابط تحقق عام.
+The 91 requirements are pre-filled from the promotion handbook, dated for the training year starting in October of `YEAR_START`.
 
-### تاريخ العقد
-تُملأ خانات التاريخ الفارغة في النص تلقائياً بتاريخ آخر توقيع (توقيت الرياض)، بالهجري (أم القرى) وبالميلادي، وبنفس خط النص، مثل:
+Screenshots: `docs/screenshots/`.
+
+## Free hosting on Cloudflare (recommended)
+Free plan, no credit card. Data is stored in **D1** (Cloudflare's SQLite database) and uploaded files in **Workers KV** (up to 25 MB per file). Every push to GitHub redeploys automatically.
+
+One-time setup:
+1. Create a free account at [dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up).
+2. **Workers & Pages → Create → Import a repository**, connect GitHub and pick this repository.
+3. Keep the default build settings (deploy command `npx wrangler deploy`) and choose the branch to deploy.
+4. Deploy. The D1 database and KV namespace are created automatically on the first deploy.
+5. Open the Worker → **Settings → Variables and Secrets** and add two **secrets**: `ADMIN_EMAIL` and `ADMIN_PASSWORD`. Until they are set, the API answers with a message asking for them.
+6. Open the link (`https://promotion-portal.<your-account>.workers.dev`) and sign in with those credentials.
+
+Changing `ADMIN_PASSWORD` later resets the admin password. Free plan limits that matter here: 100,000 requests/day, D1 5 GB, KV 1 GB of files and 1,000 uploads/day.
+
+Backups: D1 keeps 30 days of point-in-time history (**Time Travel**). To export: `npx wrangler d1 export promotion-portal --remote --output backup.sql`.
+
+## Running on your own server
+```bash
+npm install   # only needed for the Cloudflare tools
+ADMIN_EMAIL=admin@center.sa ADMIN_PASSWORD='strong-password' npm start   # http://localhost:3100
+npm test
 ```
-إنه في يوم:    /    /1447هـ، الموافق:    /    /2026م
-← إنه في يوم: الاثنين 1/5/1448هـ، الموافق: 12/10/2026م
-```
-وإذا كُتبت السنة بالأرقام العربية (١٤٤٧) يُكتب التاريخ بها أيضاً.
-
-## ما يتوافق مع الممارسات العالمية للتوقيع الإلكتروني (ESIGN / UETA / eIDAS – توقيع إلكتروني بسيط)
-| المتطلب | التطبيق |
+| Variable | Default |
 |---|---|
-| نية التوقيع | زر «اعتماد التوقيع» صريح مع رسم أو كتابة الاسم |
-| الموافقة على التعامل الإلكتروني | إقرار إلزامي يذكر رقم الإصدار وبصمته |
-| نسبة التوقيع لصاحبه | رابط شخصي سري (192 بت) + تسجيل الوقت وعنوان IP والمتصفح |
-| ربط التوقيع بالمستند | التوقيع مرتبط ببصمة SHA-256 للنص؛ أي تغيير يُبطله |
-| سلامة السجل | سجل تدقيق متسلسل (كل حدث يحمل بصمة الحدث السابق) يكشف أي تلاعب |
-| الاحتفاظ بالسجلات | نسخة PDF + ملف إثبات JSON + صفحة تحقق عامة |
+| `PORT` | 3100 |
+| `DATA_DIR` | `data/` (JSON database + uploads folder — back it up) |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Admin account created on first run; if no password is set, one is printed to the log |
+| `YEAR_START` | 2026 |
 
-> ملاحظة: هذا توقيع إلكتروني بسيط مناسب لمعظم اتفاقيات الشراكة. العقود التي يشترط نظامها توثيقاً رسمياً أو توقيعاً رقمياً بشهادة معتمدة تحتاج جهة توثيق مختصة.
+Put it behind HTTPS (e.g. Caddy or Nginx) when deploying.
 
-## التشغيل
-يتطلب **Node.js 20+** فقط — بدون أي مكتبات خارجية.
-
-```bash
-npm start            # http://localhost:3000
-npm test             # الاختبارات
+## Structure
 ```
-
-### النشر المجاني على Cloudflare (موصى به — تحديث تلقائي)
-مجاني، وسريع جداً، ولا يتوقف عند عدم الاستخدام، ويُنشر تلقائياً مع كل تحديث على GitHub. كل عقد يُحفظ في Durable Object خاص به.
-
-إعداد لمرة واحدة:
-1. أنشئ حساباً مجانياً في [Cloudflare](https://dash.cloudflare.com/sign-up) (لا يتطلب بطاقة).
-2. من القائمة: **Workers & Pages → Create → Import a repository**.
-3. اربط حساب GitHub واختر المستودع **falofoc/Aqd**، واترك الإعدادات كما هي (أمر النشر: `npx wrangler deploy`).
-4. اضغط **Deploy**، وستحصل على رابط مثل `https://aqd.<اسمك>.workers.dev`.
-
-بعدها أي تحديث يُرفع إلى الفرع الافتراضي في GitHub يُنشر خلال دقيقة تقريباً دون أي تدخل.
-
-### النشر المجاني على Oracle Cloud (خادم كامل)
-1. أنشئ حساباً في [Oracle Cloud Free Tier](https://www.oracle.com/cloud/free/)، واختر منطقة قريبة كـ **Jeddah** إن ظهرت لك.
-2. أنشئ خادماً (Create a VM instance) بنظام **Ubuntu 24.04** وشكل **VM.Standard.A1.Flex** (أو **E2.1.Micro**، وهو كافٍ للأداة).
-3. من إعدادات الشبكة: `Virtual Cloud Network → Security List → Add Ingress Rules`، وافتح المنفذين **80** و **443** من `0.0.0.0/0`.
-4. ادخل للخادم بـ SSH ونفّذ أمراً واحداً:
-```bash
-curl -fsSL https://raw.githubusercontent.com/falofoc/Aqd/ccr-b6af62a2-hn8lby/deploy/install.sh | sudo bash
+lib/core.js          all portal logic (shared by both platforms)
+lib/catalog.js       the R1–R4 requirements from the promotion handbook
+lib/file-store.js    storage for Node: db.json + uploads/
+server.js            Node server
+cloudflare/worker.js Cloudflare Worker: D1 for data, KV for files
+public/              the interface (served as static assets on Cloudflare)
 ```
-سيعطيك رابطاً جاهزاً بشهادة HTTPS مثل `https://1.2.3.4.sslip.io`. ولو عندك نطاق خاص، وجّه سجل A إلى IP الخادم ثم استخدم:
-```bash
-curl -fsSL https://raw.githubusercontent.com/falofoc/Aqd/ccr-b6af62a2-hn8lby/deploy/install.sh | sudo DOMAIN=sign.example.com bash
-```
-السكربت ينصّب Node.js و HTTPS تلقائياً عبر Caddy ونسخاً احتياطياً يومياً، وللتحديث لاحقاً: `sudo aqd-update`.
+Local Cloudflare test: put `ADMIN_EMAIL`/`ADMIN_PASSWORD` in `.dev.vars`, then `npm install && npm run cf:dev`.
 
-### النشر بـ Docker
-```bash
-docker compose up -d --build
-```
-عدّل `BASE_URL` في `docker-compose.yml` إلى عنوان موقعك، وضع التطبيق خلف HTTPS (Caddy / Nginx / Cloudflare).
-
-### متغيرات البيئة
-| المتغير | الافتراضي | الوصف |
-|---|---|---|
-| `PORT` | `3000` | منفذ الخادم |
-| `DATA_DIR` | `./data` | مجلد حفظ العقود (ملف JSON لكل عقد) — **اعمل له نسخاً احتياطياً** |
-| `BASE_URL` | من ترويسة Host | العنوان العام المستخدم في الروابط |
-| `TRUST_PROXY` | `0` | `1` لقراءة IP الحقيقي من `X-Forwarded-For` خلف وكيل |
-
-يمكن نشره أيضاً على أي منصة تدعم Node (Render, Railway, Fly.io, VPS) مع قرص دائم لمجلد `DATA_DIR`.
-
-## البنية
-```
-server.js            خادم Node (للخوادم و Docker)
-cloudflare/worker.js نسخة Cloudflare Workers + Durable Objects
-lib/session.js       منطق طلبات الروابط المشترك بين البيئتين
-lib/contracts.js     منطق العقد: الإصدارات، التوقيع، طلبات التعديل، سجل التدقيق
-lib/store.js         تخزين ملفات JSON بكتابة ذرّية وقفل لكل عقد
-public/              واجهة عربية (RTL) بدون مكتبات: لوحة توقيع، مقارنة إصدارات، شهادة قابلة للطباعة
-test/                اختبارات المنطق ورحلة كاملة عبر HTTP
-```
-
-## الأمان
-- روابط سرية عشوائية لكل طرف، ولا يرى أي طرف روابط الآخرين.
-- `Referrer-Policy: no-referrer` و CSP صارمة ومنع التضمين في إطارات.
-- حماية من التعديلات المتزامنة (كل تعديل وتوقيع يتحقق من بصمة النسخة التي رآها المستخدم).
-- حد لعدد الطلبات، وحد لحجم الطلب وصورة التوقيع.
+## Aqd (contract signing)
+The earlier contract-signing app «عَقد» now lives in [`aqd/`](aqd/README.md) and runs independently. If it is already deployed on Cloudflare, set that Worker's **Root directory** to `aqd` in its build settings.
