@@ -73,3 +73,16 @@ test('admin can close and reopen registration per level', async () => {
     assert.equal((await reg('R4', 'r4@x.sa')).status, 201);
   } finally { srv.close(); }
 });
+
+test('requirements catalog is public and lists only published items', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  try {
+    const r = await fetch(`http://localhost:${srv.address().port}/api/catalog`);
+    assert.equal(r.status, 200);
+    const { levels, requirements } = await r.json();
+    assert.deepEqual(Object.keys(levels), ['R1', 'R2', 'R3', 'R4']);
+    assert.ok(requirements.length > 80 && requirements.every((x) => x.published && x.state));
+  } finally { srv.close(); }
+});
