@@ -1,14 +1,19 @@
 {
-  "name": "aqd",
+  "name": "promotion-portal",
   "version": "1.0.0",
-  "description": "عَقد — منصة توقيع إلكتروني للعقود بين الشركاء مع إعادة التوقيع عند التعديل",
-  "main": "server.js",
+  "description": "Trainee promotion requirements submission portal",
   "private": true,
-  "license": "MIT",
-  "engines": { "node": ">=20" },
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "cf:dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.145.0"
   }
 }
