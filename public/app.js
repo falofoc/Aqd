@@ -134,7 +134,7 @@ function openReq(r) {
       <button class="pri" id="up" style="margin-top:8px">${s ? 'Replace file' : 'Upload file'}</button>${r.state === 'late' ? '<p class="err" style="margin-top:8px">Submitting now is late and will reduce the timeliness score.</p>' : ''}</div>`
       : `<p class="muted">${s?.grade ? 'Graded; the file can no longer be replaced.' : r.state === 'upcoming' ? 'Uploading opens when the window opens.' : r.state === 'closed' ? 'The submission window is closed.' : ''}</p>`}
     <div id="e"></div></div>
-   <button id="x">Close</button>`;
+   <div class="bar"><button id="x">Close</button></div>`;
   $('#x').onclick = () => $('#dlg').close();
   if (canUpload) $('#up').onclick = async () => {
     const f = $('#file').files[0];
@@ -155,10 +155,10 @@ async function viewUsers() {
   const users = await api('admin/users');
   const st = { pending: ['Awaiting activation', 't-late'], active: ['Active', 't-open'], disabled: ['Disabled', 't-closed'] };
   app.innerHTML = `<h1>Trainees</h1><div class="box">New registrations are listed first. Check the SCFHS number, then activate the account and set the level.</div>
-  <div class="tw card"><table><tr><th>Name</th><th>Email / mobile</th><th>SCFHS no.</th><th>Level</th><th>Status</th><th></th></tr>
-  ${users.sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0)).map((u) => `<tr data-id="${u.id}"><td>${esc(u.name)}</td><td>${esc(u.email)}<br>${esc(u.phone)}</td><td>${esc(u.scfhs)}</td>
-   <td><select data-lv>${LEVEL_OPTS(u.level)}</select></td>
-   <td><span class="tag ${st[u.status][1]}">${st[u.status][0]}</span></td>
+  <div class="tw card"><table class="stack"><tr class="hd"><th>Name</th><th>Email / mobile</th><th>SCFHS no.</th><th>Level</th><th>Status</th><th></th></tr>
+  ${users.sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0)).map((u) => `<tr data-id="${u.id}"><td class="ttl">${esc(u.name)}</td><td data-label="Email / mobile">${esc(u.email)}<br>${esc(u.phone)}</td><td data-label="SCFHS no.">${esc(u.scfhs)}</td>
+   <td data-label="Level"><select data-lv>${LEVEL_OPTS(u.level)}</select></td>
+   <td data-label="Status"><span class="tag ${st[u.status][1]}">${st[u.status][0]}</span></td>
    <td class="row">${u.status !== 'active' ? '<button class="pri" data-s="active">Activate</button>' : '<button class="bad" data-s="disabled">Disable</button>'}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No trainees yet</td></tr>'}
   </table></div>`;
   app.querySelectorAll('tr[data-id]').forEach((tr) => {
@@ -201,7 +201,7 @@ function editReq(r) {
    <label>Evaluation criteria (one per line: points | criterion — must total 90; 10 for timeliness is added automatically)<textarea name="rubric" rows="6">${esc(r.rubric.map((c) => `${c.max} | ${c.name}`).join('\n'))}</textarea></label>
    <label>References (one per line: title | link)<textarea name="resources">${esc(r.resources.map((x) => `${x.title} | ${x.url}`).join('\n'))}</textarea></label>
    <div id="e"></div>
-   <div class="row"><button class="pri">Save</button><button type="button" id="x">Cancel</button>${r.id ? '<button type="button" class="bad" id="del">Delete</button>' : ''}</div></form>`;
+   <div class="row bar"><button class="pri">Save</button><button type="button" id="x">Cancel</button>${r.id ? '<button type="button" class="bad" id="del">Delete</button>' : ''}</div></form>`;
   const lines = (v) => v.split('\n').map((s) => s.trim()).filter(Boolean);
   $('#x').onclick = () => $('#dlg').close();
   if (r.id) $('#del').onclick = async () => { if (!confirm('Delete this requirement?')) return; try { await api('admin/requirements/' + r.id, { method: 'DELETE' }); $('#dlg').close(); route(); } catch (e) { errBox(e); } };
@@ -227,13 +227,13 @@ async function viewSubs() {
   const R = Object.fromEntries(reqs.map((r) => [r.id, r]));
   app.innerHTML = `<h1>Submissions</h1>
   <div class="filters"><select id="fg"><option value="">All</option><option value="new">Awaiting grading</option><option value="done">Graded</option></select><select id="fl"><option value="">All levels</option>${LEVEL_OPTS()}</select></div>
-  <div class="card tw"><table id="t"></table></div>`;
+  <div class="card tw"><table id="t" class="stack"></table></div>`;
   const draw = () => {
     const g = $('#fg').value, lv = $('#fl').value;
     const rows = subs.filter((s) => (!g || (g === 'done') === !!s.grade) && (!lv || R[s.reqId]?.level === lv)).sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
-    $('#t').innerHTML = `<tr><th>Trainee</th><th>Requirement</th><th>Submission</th><th class="n">Score</th><th></th></tr>` + (rows.map((s) => `<tr><td>${esc(s.user.name)}<br><small class="muted">${s.user.level}</small></td>
-     <td>${esc(R[s.reqId]?.title)}</td><td><a href="/api/submissions/${s.id}/file">${esc(s.fileName)}</a><br><small>${fmt(s.submittedAt)}</small> ${s.late ? '<span class="tag t-late">Late</span>' : ''}</td>
-     <td class="n">${s.grade ? `${s.grade.total}<br><small>${esc(s.grade.band)}</small>` : '—'}</td><td><button data-id="${s.id}">${s.grade ? 'Edit' : 'Grade'}</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing here</td></tr>');
+    $('#t').innerHTML = `<tr class="hd"><th>Trainee</th><th>Requirement</th><th>Submission</th><th class="n">Score</th><th></th></tr>` + (rows.map((s) => `<tr><td class="ttl">${esc(s.user.name)} <small class="muted">${s.user.level}</small></td>
+     <td data-label="Requirement">${esc(R[s.reqId]?.title)}</td><td data-label="Submission"><a href="/api/submissions/${s.id}/file">${esc(s.fileName)}</a><br><small>${fmt(s.submittedAt)}</small> ${s.late ? '<span class="tag t-late">Late</span>' : ''}</td>
+     <td class="n" data-label="Score">${s.grade ? `${s.grade.total}<br><small>${esc(s.grade.band)}</small>` : '—'}</td><td><button data-id="${s.id}">${s.grade ? 'Edit' : 'Grade'}</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing here</td></tr>');
     $('#t').querySelectorAll('button').forEach((b) => b.onclick = () => grade(subs.find((s) => s.id === b.dataset.id), R));
   };
   $('#fg').onchange = $('#fl').onchange = draw; draw();
@@ -245,12 +245,12 @@ function grade(s, R) {
   const t = lateDays <= 0 ? 10 : lateDays <= 7 ? 5 : 0;
   $('#dlgBody').innerHTML = `<h2>${esc(r.title)}</h2><p>${esc(s.user.name)} · <a href="/api/submissions/${s.id}/file">${esc(s.fileName)}</a> · ${fmt(s.submittedAt)}</p>
    ${s.note ? `<div class="box">Trainee's note: ${esc(s.note)}</div>` : ''}
-   <div class="tw"><table><tr><th>Criterion</th><th class="n">Max</th><th>Rating</th><th class="n">Score</th></tr>
-   ${r.rubric.map((c, i) => `<tr><td>${esc(c.name)}</td><td class="n">${c.max}</td><td><select data-i="${i}">${RATE.map(([k, v]) => `<option value="${k}" ${s.grade?.items[i]?.rating === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td><td class="n" data-o></td></tr>`).join('')}
-   <tr><td>Submitted on time (computed automatically)</td><td class="n">10</td><td>${t === 10 ? 'On time' : t === 5 ? '1–7 days late' : 'More than 7 days late'}</td><td class="n">${t}</td></tr>
-   <tr><th colspan="3">Total</th><th class="n score" id="tot"></th></tr></table></div>
+   <div class="tw"><table class="stack"><tr class="hd"><th>Criterion</th><th class="n">Max</th><th>Rating</th><th class="n">Score</th></tr>
+   ${r.rubric.map((c, i) => `<tr><td class="ttl">${esc(c.name)}</td><td class="n" data-label="Max">${c.max}</td><td data-label="Rating"><select data-i="${i}">${RATE.map(([k, v]) => `<option value="${k}" ${s.grade?.items[i]?.rating === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td><td class="n" data-label="Score" data-o></td></tr>`).join('')}
+   <tr><td class="ttl">Submitted on time (computed automatically)</td><td class="n" data-label="Max">10</td><td data-label="Rating">${t === 10 ? 'On time' : t === 5 ? '1–7 days late' : 'More than 7 days late'}</td><td class="n" data-label="Score">${t}</td></tr>
+   <tr class="tot"><th colspan="3">Total</th><th class="n score" id="tot"></th></tr></table></div>
    <label>Feedback to the trainee<textarea id="fb">${esc(s.grade?.feedback || '')}</textarea></label><div id="e"></div>
-   <div class="row"><button class="pri" id="sv">Save grade</button><button id="x">Cancel</button>${s.grade ? '<button class="bad" id="rm">Remove grade (allows re-upload)</button>' : ''}</div>`;
+   <div class="row bar"><button class="pri" id="sv">Save grade</button><button id="x">Cancel</button>${s.grade ? '<button class="bad" id="rm">Remove grade (allows re-upload)</button>' : ''}</div>`;
   const pct = { excellent: 1, adequate: 0.7, weak: 0.4, absent: 0 };
   const calc = () => {
     let sum = t;
