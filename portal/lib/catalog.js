@@ -1,5 +1,5 @@
 'use strict';
-// كتالوج المتطلبات مأخوذ من دليل متطلبات الترقية (طب وقائي R1–R4) ومنهج SCFHS 2026.
+// Requirement catalog from the Preventive Medicine promotion handbook (R1–R4) and the SCFHS 2026 curriculum.
 const R={
 course:[["Valid completion certificate in the resident's name, all modules completed",60],["Uploaded to portfolio with a 3–5 line reflection on how it applies to practice",30]],
 cap:[["Paper choice: recent (≤5 years), peer-reviewed, relevant; PICO stated",10],["Correct appraisal checklist used; validity/bias assessed item by item",25],["Results interpreted correctly (effect size, 95% CI, NNT where relevant)",20],["Applicability to Saudi setting and practice discussed",15],["Presentation clarity and handling of discussion",20]],
@@ -173,25 +173,25 @@ r4:{t:"R4 – Independence",d:"Work as a consultant: outbreak investigation, sur
 };
 
 
-// نوع الملف المطلوب وطريقة التسليم لكل نوع متطلب.
+// Required file type and how to submit, per requirement type.
 const FILES={
-  pdf:{ext:['pdf'],label:'PDF',how:'ملف PDF واحد، اسمه: الاسم_المستوى_المتطلب.pdf'},
-  slides:{ext:['pdf','pptx'],label:'PDF أو PowerPoint',how:'الشرائح (PPTX) أو نسخة PDF منها، مع نموذج التقييم الموقّع في آخر صفحة'},
-  doc:{ext:['pdf','docx'],label:'PDF أو Word',how:'تقرير مكتوب (Word أو PDF) مع صفحة غلاف ومراجع، والنموذج الموقّع ملحق في النهاية'},
-  form:{ext:['pdf','jpg','jpeg','png'],label:'PDF أو صورة',how:'صورة واضحة أو مسح ضوئي للنموذج الموقّع من المقيّم (PDF مفضّل)'},
-  bundle:{ext:['pdf','zip'],label:'PDF أو ZIP',how:'ملف PDF مجمّع، أو ZIP يحتوي كل الأدلة مرتبة في مجلدات'}
+  pdf:{ext:['pdf'],label:'PDF',how:'One PDF file named Name_Level_Requirement.pdf'},
+  slides:{ext:['pdf','pptx'],label:'PDF or PowerPoint',how:'The slides (PPTX) or a PDF of them, with the signed evaluation form as the last page'},
+  doc:{ext:['pdf','docx'],label:'PDF or Word',how:'A written report (Word or PDF) with a cover page and references, signed form attached at the end'},
+  form:{ext:['pdf','jpg','jpeg','png'],label:'PDF or image',how:'A clear photo or scan of the form signed by the assessor (PDF preferred)'},
+  bundle:{ext:['pdf','zip'],label:'PDF or ZIP',how:'One combined PDF, or a ZIP with all evidence organized in folders'}
 };
 const FTYPE={course:'pdf',cap:'slides',cat:'doc',seminar:'slides',cbd:'form',minicex:'form',cot:'form',logbook:'pdf',iter:'pdf',portfolio:'bundle',volunteer:'pdf',hep:'doc',proposal:'doc',ethics:'doc',review:'doc',white:'doc',program:'doc',peer:'doc',ic:'doc',comm:'doc',cna:'doc',outbreak:'doc',survrep:'doc',surveval:'doc',poster:'pdf',present:'slides',original:'doc',milestone:'bundle',exam:'pdf',ebm:'doc'};
 
 const MON={JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12};
-// العام التدريبي يبدأ في أكتوبر من yearStart. يعيد نافذة القبول (فتح/إغلاق) من وسم الشهر.
+// The training year starts in October of yearStart. Returns the open/close window from a month label.
 function windowFor(label,yearStart){
   const ms=(label.match(/[A-Z]{3}/g)||[]).filter(m=>MON[m]);
   if(!ms.length) return null;
   const y=m=>MON[m]>=10?yearStart:yearStart+1;
   const f=ms[0],l=ms[ms.length-1];
-  const open=new Date(Date.UTC(y(f),MON[f]-1,1,-3,0)); // 00:00 بتوقيت الرياض
-  const close=new Date(Date.UTC(y(l),MON[l],0,20,59)); // 23:59 بتوقيت الرياض
+  const open=new Date(Date.UTC(y(f),MON[f]-1,1,-3,0)); // 00:00 Riyadh time
+  const close=new Date(Date.UTC(y(l),MON[l],0,20,59)); // 23:59 Riyadh time
   return {openAt:open.toISOString(),closeAt:close.toISOString()};
 }
 

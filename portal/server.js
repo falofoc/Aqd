@@ -1,5 +1,5 @@
 'use strict';
-// منصة رفع واستلام المتطلبات — خادم بلا اعتماديات خارجية.
+// Requirements submission portal — server with no external dependencies.
 
 const http = require('node:http');
 const fs = require('node:fs');
@@ -19,7 +19,7 @@ class AppError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-// ---------- التخزين (ملف JSON مع كتابة ذرّية) ----------
+// ---------- Storage (JSON file with atomic writes) ----------
 
 class DB {
   constructor(dir) {
@@ -38,7 +38,7 @@ class DB {
   }
 }
 
-// ---------- أدوات ----------
+// ---------- Helpers ----------
 
 const id = (n = 12) => crypto.randomBytes(n).toString('hex');
 const now = () => new Date();
@@ -58,7 +58,7 @@ function publicUser(u) {
   return rest;
 }
 
-// حالة نافذة القبول لمتطلب في لحظة معينة.
+// Submission window state of a requirement at a given moment.
 function windowState(r, t = now()) {
   if (!r.openAt || !r.closeAt) return 'unscheduled';
   const open = new Date(r.openAt), close = new Date(r.closeAt);
@@ -69,7 +69,7 @@ function windowState(r, t = now()) {
   return 'closed';
 }
 
-// درجة الالتزام بالموعد (من 10): في الموعد 10، تأخر 1–7 أيام 5، أكثر 0.
+// Timeliness score (out of 10): on time 10, 1–7 days late 5, more 0.
 function timeliness(r, submittedAt) {
   const late = (new Date(submittedAt) - new Date(r.closeAt)) / 86400000;
   if (late <= 0) return 10;
@@ -78,7 +78,7 @@ function timeliness(r, submittedAt) {
 }
 
 function band(s) {
-  return s >= 90 ? 'يتجاوز التوقعات' : s >= 70 ? 'يحقق التوقعات' : s >= 50 ? 'حدّي' : 'لا يحقق التوقعات';
+  return s >= 90 ? 'Exceeds expectation' : s >= 70 ? 'Meets expectation' : s >= 50 ? 'Borderline' : 'Does not meet expectation';
 }
 
 function send(res, status, body, headers = {}) {
@@ -100,7 +100,7 @@ function readBody(req, limit) {
     const chunks = [];
     req.on('data', (c) => {
       size += c.length;
-      if (size > limit) { reject(new AppError(413, 'حجم الملف أكبر من المسموح')); req.destroy(); }
+      if (size > limit) { reject(new AppError(413, 'File is larger than allowed')); req.destroy(); }
       else chunks.push(c);
     });
     req.on('end', () => resolve(Buffer.concat(chunks)));
@@ -110,7 +110,7 @@ function readBody(req, limit) {
 async function readJson(req) {
   const b = await readBody(req, MAX_JSON);
   try { return b.length ? JSON.parse(b.toString('utf8')) : {}; }
-  catch { throw new AppError(400, 'بيانات غير صالحة'); }
+  catch { throw new AppError(400, 'Invalid data'); }
 }
 
 function parseCookies(req) {
@@ -124,33 +124,33 @@ function parseCookies(req) {
 
 const str = (v, max = 200) => String(v ?? '').trim().slice(0, max);
 
-// ---------- الواجهة البرمجية ----------
+// ---------- API ----------
 
 function createApp(opts = {}) {
   const db = new DB(opts.dataDir || DATA_DIR);
   const adminEmail = (opts.adminEmail || process.env.ADMIN_EMAIL || 'admin@example.com').toLowerCase();
   const adminPw = opts.adminPassword || process.env.ADMIN_PASSWORD;
 
-  // إنشاء حساب الإدارة عند أول تشغيل.
+  // Create the admin account on first run.
   if (!db.d.users.some((u) => u.role === 'admin')) {
     const pw = adminPw || id(6);
-    db.d.users.push({ id: id(), role: 'admin', name: 'الإدارة', email: adminEmail, password: hashPw(pw), status: 'active', createdAt: now().toISOString() });
+    db.d.users.push({ id: id(), role: 'admin', name: 'Administrator', email: adminEmail, password: hashPw(pw), status: 'active', createdAt: now().toISOString() });
     db.save();
-    if (!adminPw) console.log(`حساب الإدارة: ${adminEmail} / كلمة المرور: ${pw}  (غيّرها من ADMIN_PASSWORD)`);
+    if (!adminPw) console.log(`Admin account: ${adminEmail} / password: ${pw}  (set ADMIN_PASSWORD to choose one)`);
   }
 
   function auth(req, role) {
     const tok = parseCookies(req).sid;
     const s = tok && db.d.sessions[tok];
     const u = s && db.d.users.find((x) => x.id === s.uid);
-    if (!u) throw new AppError(401, 'يرجى تسجيل الدخول');
-    if (u.status !== 'active') throw new AppError(403, 'الحساب بانتظار التفعيل من الإدارة');
-    if (role && u.role !== role) throw new AppError(403, 'غير مصرّح');
+    if (!u) throw new AppError(401, 'Please sign in');
+    if (u.status !== 'active') throw new AppError(403, 'Your account is awaiting activation by the administration');
+    if (role && u.role !== role) throw new AppError(403, 'Not allowed');
     return u;
   }
   const getReq = (rid) => {
     const r = db.d.requirements.find((x) => x.id === rid);
-    if (!r) throw new AppError(404, 'المتطلب غير موجود');
+    if (!r) throw new AppError(404, 'Requirement not found');
     return r;
   };
   const withState = (r) => ({ ...r, state: windowState(r) });
@@ -158,7 +158,7 @@ function createApp(opts = {}) {
   async function api(req, res, p) {
     const m = req.method;
 
-    // التسجيل
+    // Registration
     if (p[0] === 'register' && m === 'POST') {
       const b = await readJson(req);
       const email = str(b.email, 120).toLowerCase();
@@ -167,21 +167,21 @@ function createApp(opts = {}) {
         name: str(b.name, 120), email, phone: str(b.phone, 30), scfhs: str(b.scfhs, 30),
         level: LEVELS.includes(b.level) ? b.level : 'R1', center: str(b.center, 120),
       };
-      if (!u.name || !/^\S+@\S+\.\S+$/.test(email)) throw new AppError(400, 'الاسم والبريد الإلكتروني مطلوبان');
-      if (String(b.password || '').length < 8) throw new AppError(400, 'كلمة المرور 8 أحرف على الأقل');
-      if (db.d.users.some((x) => x.email === email)) throw new AppError(409, 'البريد مسجّل مسبقاً');
+      if (!u.name || !/^\S+@\S+\.\S+$/.test(email)) throw new AppError(400, 'Name and email are required');
+      if (String(b.password || '').length < 8) throw new AppError(400, 'Password must be at least 8 characters');
+      if (db.d.users.some((x) => x.email === email)) throw new AppError(409, 'This email is already registered');
       u.password = hashPw(String(b.password));
       db.d.users.push(u);
       db.save();
-      return json(res, 201, { ok: true, message: 'تم التسجيل. سيتم تفعيل حسابك بعد مراجعة الإدارة.' });
+      return json(res, 201, { ok: true, message: 'Registration received. Your account will be activated after the administration reviews it.' });
     }
 
     if (p[0] === 'login' && m === 'POST') {
       const b = await readJson(req);
       const u = db.d.users.find((x) => x.email === str(b.email, 120).toLowerCase());
-      if (!u || !checkPw(String(b.password || ''), u.password)) throw new AppError(401, 'بيانات الدخول غير صحيحة');
-      if (u.status === 'pending') throw new AppError(403, 'حسابك بانتظار التفعيل من الإدارة');
-      if (u.status === 'disabled') throw new AppError(403, 'الحساب موقوف، تواصل مع الإدارة');
+      if (!u || !checkPw(String(b.password || ''), u.password)) throw new AppError(401, 'Incorrect email or password');
+      if (u.status === 'pending') throw new AppError(403, 'Your account is awaiting activation by the administration');
+      if (u.status === 'disabled') throw new AppError(403, 'This account is disabled; contact the administration');
       const tok = id(24);
       db.d.sessions[tok] = { uid: u.id, at: Date.now() };
       db.save();
@@ -196,7 +196,7 @@ function createApp(opts = {}) {
 
     if (p[0] === 'me' && m === 'GET') return json(res, 200, { user: publicUser(auth(req)), levels: LEVEL_INFO });
 
-    // متطلبات المتدرب مع حالة تسليمه
+    // Trainee requirements with their submission status
     if (p[0] === 'requirements' && !p[1] && m === 'GET') {
       const u = auth(req);
       const list = db.d.requirements.filter((r) => u.role === 'admin' || (r.published && r.level === u.level));
@@ -207,21 +207,21 @@ function createApp(opts = {}) {
       }));
     }
 
-    // رفع ملف التسليم: جسم الطلب هو الملف نفسه، واسم الملف في الترويسة
+    // Upload: the request body is the file itself; the file name is in a header
     if (p[0] === 'requirements' && p[2] === 'submit' && m === 'POST') {
       const u = auth(req, 'trainee');
       const r = getReq(p[1]);
-      if (!r.published || r.level !== u.level) throw new AppError(403, 'هذا المتطلب ليس لمستواك');
+      if (!r.published || r.level !== u.level) throw new AppError(403, 'This requirement is not for your level');
       const st = windowState(r);
-      if (st === 'upcoming' || st === 'unscheduled') throw new AppError(403, 'نافذة التسليم لم تُفتح بعد');
-      if (st === 'closed') throw new AppError(403, 'أُغلقت نافذة التسليم');
+      if (st === 'upcoming' || st === 'unscheduled') throw new AppError(403, 'The submission window has not opened yet');
+      if (st === 'closed') throw new AppError(403, 'The submission window is closed');
       const name = path.basename(decodeURIComponent(String(req.headers['x-file-name'] || 'file')));
       const ext = path.extname(name).slice(1).toLowerCase();
-      if (!r.fileTypes.includes(ext)) throw new AppError(415, `نوع الملف غير مقبول. المسموح: ${r.fileTypes.join(', ')}`);
+      if (!r.fileTypes.includes(ext)) throw new AppError(415, `File type not accepted. Allowed: ${r.fileTypes.join(', ')}`);
       const buf = await readBody(req, (r.maxMB || 25) * 1048576);
-      if (!buf.length) throw new AppError(400, 'الملف فارغ');
+      if (!buf.length) throw new AppError(400, 'The file is empty');
       let s = db.d.submissions.find((x) => x.reqId === r.id && x.userId === u.id);
-      if (s?.grade) throw new AppError(409, 'تم تقييم التسليم، لا يمكن استبداله');
+      if (s?.grade) throw new AppError(409, 'This submission is graded and cannot be replaced');
       const fileId = id() + '.' + ext;
       fs.writeFileSync(path.join(db.uploads, fileId), buf);
       if (s) { fs.rmSync(path.join(db.uploads, s.fileId), { force: true }); s.history = [...(s.history || []), { at: s.submittedAt, name: s.fileName }]; }
@@ -231,11 +231,11 @@ function createApp(opts = {}) {
       return json(res, 200, s);
     }
 
-    // تنزيل ملف (صاحب التسليم أو الإدارة)
+    // File download (submission owner or admin)
     if (p[0] === 'submissions' && p[2] === 'file' && m === 'GET') {
       const u = auth(req);
       const s = db.d.submissions.find((x) => x.id === p[1]);
-      if (!s || (u.role !== 'admin' && s.userId !== u.id)) throw new AppError(404, 'غير موجود');
+      if (!s || (u.role !== 'admin' && s.userId !== u.id)) throw new AppError(404, 'Not found');
       const f = path.join(db.uploads, s.fileId);
       return send(res, 200, fs.readFileSync(f), {
         'Content-Type': 'application/octet-stream',
@@ -243,14 +243,14 @@ function createApp(opts = {}) {
       });
     }
 
-    // ---------- الإدارة ----------
+    // ---------- Admin ----------
     if (p[0] === 'admin') {
       const admin = auth(req, 'admin');
 
       if (p[1] === 'users' && !p[2] && m === 'GET') return json(res, 200, db.d.users.filter((u) => u.role !== 'admin').map(publicUser));
       if (p[1] === 'users' && p[2] && m === 'POST') {
         const u = db.d.users.find((x) => x.id === p[2] && x.role !== 'admin');
-        if (!u) throw new AppError(404, 'المستخدم غير موجود');
+        if (!u) throw new AppError(404, 'User not found');
         const b = await readJson(req);
         if (['active', 'disabled', 'pending'].includes(b.status)) {
           u.status = b.status;
@@ -278,15 +278,15 @@ function createApp(opts = {}) {
           lateDays: Math.max(0, Number(b.lateDays ?? r.lateDays ?? 14)), published: b.published !== undefined ? !!b.published : !!r.published,
         });
         const total = r.rubric.reduce((a, c) => a + c.max, 0);
-        if (total !== 90) throw new AppError(400, `مجموع معايير المحتوى يجب أن يكون 90 (الحالي ${total})، و10 للالتزام بالموعد`);
-        if (r.openAt && r.closeAt && new Date(r.openAt) >= new Date(r.closeAt)) throw new AppError(400, 'موعد الإغلاق يجب أن يكون بعد الفتح');
+        if (total !== 90) throw new AppError(400, `Content criteria must total 90 (currently ${total}); timeliness adds the other 10`);
+        if (r.openAt && r.closeAt && new Date(r.openAt) >= new Date(r.closeAt)) throw new AppError(400, 'Close time must be after open time');
         r.fileLabel = r.fileTypes.join(' / ').toUpperCase();
         if (!p[2]) db.d.requirements.push(r);
         db.save();
         return json(res, 200, withState(r));
       }
       if (p[1] === 'requirements' && p[2] && m === 'DELETE') {
-        if (db.d.submissions.some((s) => s.reqId === p[2])) throw new AppError(409, 'يوجد تسليمات؛ ألغِ النشر بدلاً من الحذف');
+        if (db.d.submissions.some((s) => s.reqId === p[2])) throw new AppError(409, 'It has submissions; unpublish it instead of deleting');
         db.d.requirements = db.d.requirements.filter((r) => r.id !== p[2]);
         db.save();
         return json(res, 200, { ok: true });
@@ -298,14 +298,14 @@ function createApp(opts = {}) {
         return json(res, 200, list.map((s) => ({ ...s, user: { name: users[s.userId]?.name, email: users[s.userId]?.email, level: users[s.userId]?.level } })));
       }
 
-      // التقييم: تقدير لكل معيار + 10 درجات للموعد تُحسب آلياً
+      // Grading: a rating per criterion + 10 timeliness points computed automatically
       if (p[1] === 'grade' && p[2] && m === 'POST') {
         const s = db.d.submissions.find((x) => x.id === p[2]);
-        if (!s) throw new AppError(404, 'التسليم غير موجود');
+        if (!s) throw new AppError(404, 'Submission not found');
         const r = getReq(s.reqId);
         const b = await readJson(req);
         const ratings = Array.isArray(b.ratings) ? b.ratings : [];
-        if (ratings.length !== r.rubric.length || ratings.some((x) => !(x in RATINGS))) throw new AppError(400, 'يجب تقييم كل المعايير');
+        if (ratings.length !== r.rubric.length || ratings.some((x) => !(x in RATINGS))) throw new AppError(400, 'Every criterion must be rated');
         const items = r.rubric.map((c, i) => ({ name: c.name, max: c.max, rating: ratings[i], score: Math.round(c.max * RATINGS[ratings[i]] * 10) / 10 }));
         const t = timeliness(r, s.submittedAt);
         const total = Math.round((items.reduce((a, x) => a + x.score, 0) + t) * 10) / 10;
@@ -320,7 +320,7 @@ function createApp(opts = {}) {
       }
     }
 
-    throw new AppError(404, 'غير موجود');
+    throw new AppError(404, 'Not found');
   }
 
   function serveStatic(req, res, pathname) {
@@ -338,15 +338,15 @@ function createApp(opts = {}) {
     const { pathname } = new URL(req.url, 'http://x');
     try {
       if (pathname.startsWith('/api/')) {
-        // حماية بسيطة من CSRF: الطلبات المعدِّلة يجب أن تأتي من الواجهة نفسها
-        if (req.method !== 'GET' && req.headers['x-requested-with'] !== 'portal') throw new AppError(403, 'طلب غير مسموح');
+        // Basic CSRF guard: state-changing requests must come from the app itself
+        if (req.method !== 'GET' && req.headers['x-requested-with'] !== 'portal') throw new AppError(403, 'Request not allowed');
         return await api(req, res, pathname.slice(5).split('/').filter(Boolean));
       }
       return serveStatic(req, res, pathname);
     } catch (e) {
       if (e instanceof AppError) return json(res, e.status, { message: e.message });
       console.error(e);
-      return json(res, 500, { message: 'خطأ غير متوقع' });
+      return json(res, 500, { message: 'Unexpected error' });
     }
   });
   server.db = db;
@@ -356,5 +356,5 @@ function createApp(opts = {}) {
 module.exports = { createApp, windowState, timeliness };
 
 if (require.main === module) {
-  createApp().listen(PORT, () => console.log(`المنصة تعمل على http://localhost:${PORT}`));
+  createApp().listen(PORT, () => console.log(`Portal running at http://localhost:${PORT}`));
 }

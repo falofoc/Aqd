@@ -1,7 +1,7 @@
 :root{--bg:#f5f8f7;--sf:#fff;--fg:#16211e;--mu:#5a6a65;--ln:#d8e1de;--ac:#0f6e5c;--acs:#e1f0eb;--wa:#9a5b00;--was:#fbefd9;--bad:#b23a2e;--bads:#fbe3e0;--good:#1d7a3f}
 @media (prefers-color-scheme:dark){:root{--bg:#0f1614;--sf:#161f1c;--fg:#e3ebe8;--mu:#98aaa4;--ln:#293632;--ac:#4cc3a4;--acs:#1a322d;--wa:#e8b25a;--was:#33291a;--bad:#ef8a7e;--bads:#3a1f1c;--good:#6fd394}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.7 "IBM Plex Sans Arabic",system-ui,sans-serif}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.7 "IBM Plex Sans",system-ui,sans-serif}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 16px;background:var(--sf);border-bottom:1px solid var(--ln);position:sticky;top:0;z-index:5}
 .brand{color:var(--ac)}
 nav{display:flex;gap:6px;flex-wrap:wrap}

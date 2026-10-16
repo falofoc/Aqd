@@ -1,32 +1,34 @@
-# منصة رفع واستلام متطلبات الترقية (طب وقائي R1–R4)
+# Promotion Requirements Portal (Preventive Medicine R1–R4)
 
-نظام ويب بلا اعتماديات خارجية (Node.js ≥ 20) لاستلام متطلبات المتدربين وتقييمها.
+A dependency-free web app (Node.js ≥ 20) for receiving and grading trainee requirements.
 
-## المسار
-1. **التسجيل:** المتدرب يسجّل (الاسم، البريد، الجوال، رقم التصنيف، المستوى، المركز) ← الحساب «بانتظار التفعيل».
-2. **التفعيل:** الإدارة تراجع وتفعّل/توقف الحساب وتعدّل المستوى.
-3. **المتطلبات:** تظهر للمتدرب متطلبات مستواه فقط، لكل متطلب:
-   - نافذة تسليم (فتح/إغلاق بتوقيت الرياض) + فترة تأخير (افتراضياً 14 يوماً) وعدّاد متبقٍ.
-   - خطوات التنفيذ، نوع الملف وحجمه، طريقة التسليم، المراجع.
-   - نموذج تقييم من 100: معايير محتوى (90) + الالتزام بالموعد (10، يُحسب آلياً).
-4. **الرفع:** فقط داخل النافذة، مع التحقق من الصيغة والحجم، ويمكن الاستبدال حتى الإغلاق أو التقييم.
-5. **التقييم:** الإدارة تنزّل الملف وتختار تقدير كل معيار (ممتاز 100% · مناسب 70% · ضعيف 40% · غير موجود 0%)، وتظهر النتيجة والملاحظات للمتدرب.
+## Flow
+1. **Registration:** the trainee registers (name, email, mobile, SCFHS number, level, center) → account is *awaiting activation*.
+2. **Activation:** the administration reviews, activates or disables the account, and sets the level.
+3. **Requirements:** trainees see only their level's requirements. Each has:
+   - a submission window (open/close, Riyadh time) plus a late period (14 days by default) and a countdown;
+   - instructions, required file type and size, how to submit, references;
+   - a 100-point rubric: content criteria (90) + timeliness (10, computed automatically).
+4. **Upload:** only inside the window, with file type and size checks; replaceable until closing or grading.
+5. **Grading:** the admin downloads the file and rates each criterion (Excellent 100% · Adequate 70% · Weak 40% · Absent 0%); the trainee sees the score and feedback.
 
-صفحات عامة: دليل الاستخدام، مواقع التسجيل الخارجية (SCFHS، CDC TRAIN، OpenWHO، NCBE، PROSPERO…)، ومراجع للتحميل.
+Public pages: user guide, external registration sites (SCFHS, CDC TRAIN, OpenWHO, NCBE, PROSPERO…), references to download.
 
-المتطلبات (91 متطلباً) مُعبّأة مسبقاً من دليل متطلبات الترقية بمواعيد العام التدريبي الذي يبدأ في أكتوبر من `YEAR_START`.
+The 91 requirements are pre-filled from the promotion handbook, dated for the training year starting in October of `YEAR_START`.
 
-## التشغيل
+Screenshots: `docs/screenshots/`.
+
+## Running
 ```bash
 cd portal
-ADMIN_EMAIL=admin@center.sa ADMIN_PASSWORD='كلمة-قوية' npm start   # http://localhost:3100
+ADMIN_EMAIL=admin@center.sa ADMIN_PASSWORD='strong-password' npm start   # http://localhost:3100
 npm test
 ```
-| المتغير | الافتراضي |
+| Variable | Default |
 |---|---|
 | `PORT` | 3100 |
-| `DATA_DIR` | `portal/data` (قاعدة JSON + مجلد uploads — خذ منه نسخة احتياطية) |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | يُنشأ حساب الإدارة عند أول تشغيل؛ إن لم تُحدَّد كلمة المرور تُطبع في السجل |
+| `DATA_DIR` | `portal/data` (JSON database + uploads folder — back it up) |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Admin account created on first run; if no password is set, one is printed to the log |
 | `YEAR_START` | 2026 |
 
-ضع المنصة خلف HTTPS (مثل Caddy أو Nginx) عند النشر.
+Put it behind HTTPS (e.g. Caddy or Nginx) when deploying.
