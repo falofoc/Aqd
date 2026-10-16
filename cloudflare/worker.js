@@ -35,8 +35,11 @@ export default {
     const url = new URL(request.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
 
-    if (!env.ADMIN_PASSWORD) {
-      return Response.json({ message: 'Set the ADMIN_EMAIL and ADMIN_PASSWORD secrets in the Worker settings first.' }, { status: 503 });
+    if (!env.ADMIN_EMAIL || !env.ADMIN_PASSWORD) {
+      // Names only (never values), to show what this Worker actually received.
+      const missing = ['ADMIN_EMAIL', 'ADMIN_PASSWORD'].filter((k) => !env[k]).join(' and ');
+      const seen = Object.keys(env).filter((k) => typeof env[k] === 'string').join(', ') || 'none';
+      return Response.json({ message: `This Worker has no ${missing}. Add it under Settings → Variables and Secrets of this Worker (not Build variables). Variables this Worker sees: ${seen}.` }, { status: 503 });
     }
     handle ||= createCore({
       store: new D1Store(env.DB, env.FILES),
