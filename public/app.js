@@ -66,7 +66,6 @@ function viewRegister() {
    <label>Mobile number<input name="phone" inputmode="tel"></label>
    <label>SCFHS classification number<input name="scfhs" required></label>
    <label>Training level<select name="level">${LEVEL_OPTS('R1')}</select></label>
-   <label>Training center<input name="center"></label>
    <label>Password (at least 8 characters)<input name="password" type="password" minlength="8" required autocomplete="new-password"></label>
    <div style="align-self:end"><button class="pri">Submit registration</button></div>
   </form><div id="e"></div></div>`;
@@ -156,8 +155,8 @@ async function viewUsers() {
   const users = await api('admin/users');
   const st = { pending: ['Awaiting activation', 't-late'], active: ['Active', 't-open'], disabled: ['Disabled', 't-closed'] };
   app.innerHTML = `<h1>Trainees</h1><div class="box">New registrations are listed first. Check the SCFHS number, then activate the account and set the level.</div>
-  <div class="tw card"><table><tr><th>Name</th><th>Email / mobile</th><th>SCFHS no.</th><th>Center</th><th>Level</th><th>Status</th><th></th></tr>
-  ${users.sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0)).map((u) => `<tr data-id="${u.id}"><td>${esc(u.name)}</td><td>${esc(u.email)}<br>${esc(u.phone)}</td><td>${esc(u.scfhs)}</td><td>${esc(u.center)}</td>
+  <div class="tw card"><table><tr><th>Name</th><th>Email / mobile</th><th>SCFHS no.</th><th>Level</th><th>Status</th><th></th></tr>
+  ${users.sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0)).map((u) => `<tr data-id="${u.id}"><td>${esc(u.name)}</td><td>${esc(u.email)}<br>${esc(u.phone)}</td><td>${esc(u.scfhs)}</td>
    <td><select data-lv>${LEVEL_OPTS(u.level)}</select></td>
    <td><span class="tag ${st[u.status][1]}">${st[u.status][0]}</span></td>
    <td class="row">${u.status !== 'active' ? '<button class="pri" data-s="active">Activate</button>' : '<button class="bad" data-s="disabled">Disable</button>'}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No trainees yet</td></tr>'}
