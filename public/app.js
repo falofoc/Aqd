@@ -57,7 +57,9 @@ function viewLogin() {
   };
 }
 
-function viewRegister() {
+async function viewRegister() {
+  const { closedLevels } = await api('registration');
+  const open = ['R1', 'R2', 'R3', 'R4'].filter((l) => !closedLevels.includes(l));
   app.innerHTML = `<div class="card"><h1>Trainee registration</h1>
   <div class="box"><p>After registering, your account is <b>awaiting activation</b>. The administration checks your details (SCFHS number and training level), activates the account, and then the requirements for your level appear.</p></div>
   <form id="f" class="grid2">
@@ -65,10 +67,12 @@ function viewRegister() {
    <label>Email<input name="email" type="email" required></label>
    <label>Mobile number<input name="phone" inputmode="tel"></label>
    <label>SCFHS classification number<input name="scfhs" required></label>
-   <label>Training level<select name="level">${LEVEL_OPTS('R1')}</select></label>
+   <label>Training level<select name="level">${['R1', 'R2', 'R3', 'R4'].map((l) => `<option ${closedLevels.includes(l) ? 'disabled' : ''}>${l}${closedLevels.includes(l) ? ' (registration closed)' : ''}</option>`).join('')}</select></label>
    <label>Password (at least 8 characters)<input name="password" type="password" minlength="8" required autocomplete="new-password"></label>
    <div style="align-self:end"><button class="pri">Submit registration</button></div>
   </form><div id="e"></div></div>`;
+  if (!open.length) { $('#f').innerHTML = '<p class="warn">Registration is closed for now.</p>'; return; }
+  $('#f').level.value = open[0];
   $('#f').onsubmit = async (ev) => {
     ev.preventDefault();
     try { const r = await api('register', { body: Object.fromEntries(new FormData(ev.target)) }); app.innerHTML = `<div class="box"><h2>Registration received</h2><p>${esc(r.message)}</p><a class="btn" href="#login">Back to sign in</a></div>`; }
@@ -152,15 +156,17 @@ function openReq(r) {
 // ---------- Admin ----------
 
 async function viewUsers() {
-  const users = await api('admin/users');
+  const [users, { closedLevels }] = await Promise.all([api('admin/users'), api('registration')]);
   const st = { pending: ['Awaiting activation', 't-late'], active: ['Active', 't-open'], disabled: ['Disabled', 't-closed'] };
   app.innerHTML = `<h1>Trainees</h1><div class="box">New registrations are listed first. Check the SCFHS number, then activate the account and set the level.</div>
+  <div class="card"><h3>Registration open for</h3><div class="row" id="reg">${['R1', 'R2', 'R3', 'R4'].map((l) => `<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" value="${l}" style="width:auto" ${closedLevels.includes(l) ? '' : 'checked'}> ${l}</label>`).join('')}</div><p class="muted">Unticked levels cannot register. Existing accounts are not affected.</p></div>
   <div class="tw card"><table class="stack"><tr class="hd"><th>Name</th><th>Email / mobile</th><th>SCFHS no.</th><th>Level</th><th>Status</th><th></th></tr>
   ${users.sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0)).map((u) => `<tr data-id="${u.id}"><td class="ttl">${esc(u.name)}</td><td data-label="Email / mobile">${esc(u.email)}<br>${esc(u.phone)}</td><td data-label="SCFHS no.">${esc(u.scfhs)}</td>
    <td data-label="Level"><select data-lv>${LEVEL_OPTS(u.level)}</select></td>
    <td data-label="Status"><span class="tag ${st[u.status][1]}">${st[u.status][0]}</span></td>
    <td class="row">${u.status !== 'active' ? '<button class="pri" data-s="active">Activate</button>' : '<button class="bad" data-s="disabled">Disable</button>'}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No trainees yet</td></tr>'}
   </table></div>`;
+  $('#reg').onchange = () => api('admin/registration', { body: { closedLevels: [...$('#reg').querySelectorAll('input:not(:checked)')].map((x) => x.value) } }).catch((e) => alert(e.message));
   app.querySelectorAll('tr[data-id]').forEach((tr) => {
     const save = (b) => api('admin/users/' + tr.dataset.id, { body: b }).then(route).catch((e) => alert(e.message));
     tr.querySelectorAll('[data-s]').forEach((b) => b.onclick = () => save({ status: b.dataset.s, level: $('[data-lv]', tr).value }));
@@ -336,7 +342,7 @@ async function route() {
   nav();
   const pub = { login: viewLogin, register: viewRegister, guide: viewGuide, sites: viewSites, refs: viewRefs };
   try {
-    if (pub[h]) return pub[h]();
+    if (pub[h]) return await pub[h]();
     if (!ME) return viewLogin();
     if (ME.role === 'admin') return await ({ 'admin/reqs': viewReqsAdmin, 'admin/subs': viewSubs }[h] || viewUsers)();
     return await viewDash();

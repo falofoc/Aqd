@@ -53,3 +53,23 @@ test('register → activate → submit → grade', async () => {
     assert.equal((await call('admin/users', { cookie: tr })).status, 403);
   } finally { srv.close(); }
 });
+
+test('admin can close and reopen registration per level', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, body, cookie) => {
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', body: body && JSON.stringify(body), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) } });
+    return { status: r.status, data: await r.json(), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  const reg = (level, email) => call('register', { name: 'T', email, password: '12345678', level, scfhs: '1' });
+  try {
+    assert.deepEqual((await call('registration')).data.closedLevels, ['R4']);
+    assert.equal((await reg('R4', 'r4@x.sa')).status, 403);
+    assert.equal((await reg('R3', 'r3@x.sa')).status, 201);
+    const admin = (await call('login', { email: 'a@x.sa', password: 'adminpass' })).cookie;
+    await call('admin/registration', { closedLevels: [] }, admin);
+    assert.equal((await reg('R4', 'r4@x.sa')).status, 201);
+  } finally { srv.close(); }
+});
