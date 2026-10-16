@@ -18,7 +18,7 @@ async function api(path, opts = {}) {
 
 const STATE = { open: 'مفتوح للتسليم', late: 'تسليم متأخر', closed: 'مغلق', upcoming: 'لم يُفتح بعد', unscheduled: 'لم يُحدَّد موعده' };
 const RATE = [['excellent', 'ممتاز (100%)'], ['adequate', 'مناسب (70%)'], ['weak', 'ضعيف (40%)'], ['absent', 'غير موجود (0%)']];
-const fmt = (d) => d ? new Date(d).toLocaleString('ar-SA-u-ca-gregory-nu-latn', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Riyadh' }) : '—';
+const fmt = (d) => d ? '<bdi>' + new Date(d).toLocaleString('ar-SA-u-ca-gregory-nu-latn', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Riyadh' }) + '</bdi>' : '—';
 const left = (d) => {
   const ms = new Date(d) - Date.now();
   if (ms <= 0) return '';
