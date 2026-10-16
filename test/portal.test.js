@@ -86,3 +86,26 @@ test('requirements catalog is public and lists only published items', async () =
     assert.ok(requirements.length > 80 && requirements.every((x) => x.published && x.state));
   } finally { srv.close(); }
 });
+
+test('older databases move CAP/CAT/seminars/clinical tools to the year-long window once', async () => {
+  const { windowFor, originalLabels } = require('../lib/catalog');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const start = async () => { const s = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' }); await new Promise((r) => s.listen(0, r)); await fetch(`http://localhost:${s.address().port}/api/catalog`); s.close(); };
+  await start();
+  // Rewind to the old schedule, as an earlier version would have seeded it.
+  const file = path.join(dir, 'db.json');
+  const d = JSON.parse(fs.readFileSync(file));
+  const labels = originalLabels();
+  for (const r of Object.values(d.requirements)) Object.assign(r, { window: labels[r.id], ...windowFor(labels[r.id], 2026) });
+  const cap = Object.values(d.requirements).find((r) => r.type === 'cap');
+  const edited = Object.values(d.requirements).find((r) => r.type === 'seminar');
+  edited.closeAt = '2027-05-15T20:59:00.000Z'; // the admin changed this one
+  delete d.settings.migrations;
+  fs.writeFileSync(file, JSON.stringify(d));
+  await start();
+  const after = JSON.parse(fs.readFileSync(file)).requirements;
+  assert.equal(after[cap.id].window, 'OCT–JUL');
+  assert.equal(after[cap.id].closeAt, '2027-07-31T20:59:00.000Z');
+  assert.equal(after[edited.id].closeAt, '2027-05-15T20:59:00.000Z');
+  assert.notEqual(after[Object.values(d.requirements).find((r) => r.type === 'course').id].window, 'OCT–JUL');
+});
