@@ -83,7 +83,8 @@ test('requirements catalog is public and lists only published items', async () =
     assert.equal(r.status, 200);
     const { levels, requirements } = await r.json();
     assert.deepEqual(Object.keys(levels), ['R1', 'R2', 'R3', 'R4']);
-    assert.ok(requirements.length > 80 && requirements.every((x) => x.published && x.state));
+    assert.equal(requirements.length, 55);
+    assert.ok(requirements.every((x) => x.published && x.state));
   } finally { srv.close(); }
 });
 
@@ -108,4 +109,28 @@ test('older databases move CAP/CAT/seminars/clinical tools to the year-long wind
   assert.equal(after[cap.id].closeAt, '2027-07-31T20:59:00.000Z');
   assert.equal(after[edited.id].closeAt, '2027-05-15T20:59:00.000Z');
   assert.notEqual(after[Object.values(d.requirements).find((r) => r.type === 'course').id].window, 'OCT–JUL');
+});
+
+test('older databases keep only the official list, with its exact titles', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const start = async () => { const s = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' }); await new Promise((r) => s.listen(0, r)); await fetch(`http://localhost:${s.address().port}/api/catalog`); s.close(); };
+  await start();
+  const file = path.join(dir, 'db.json');
+  const d = JSON.parse(fs.readFileSync(file));
+  const cap = d.requirements['r1-009'];
+  const before = { openAt: cap.openAt, closeAt: cap.closeAt };
+  cap.title = 'CAP (old title)';
+  d.requirements['r1-001'] = { ...cap, id: 'r1-001', title: 'Communicating Science Clearly (online course)' }; // not on the list
+  d.requirements['r1-002'] = { ...cap, id: 'r1-002', title: 'COT #1' }; // not on the list, but has a submission
+  d.requirements['c-abcd'] = { ...cap, id: 'c-abcd', title: 'Added by admin' };
+  d.submissions.s1 = { id: 's1', reqId: 'r1-002', userId: 'u1' };
+  d.settings.migrations.done = d.settings.migrations.done.filter((x) => x !== 'official-list');
+  fs.writeFileSync(file, JSON.stringify(d));
+  await start();
+  const after = JSON.parse(fs.readFileSync(file)).requirements;
+  assert.equal(after['r1-009'].title, '1 CAP');
+  assert.deepEqual({ openAt: after['r1-009'].openAt, closeAt: after['r1-009'].closeAt }, before);
+  assert.equal(after['r1-001'], undefined);
+  assert.equal(after['r1-002'].published, false);
+  assert.equal(after['c-abcd'].title, 'Added by admin');
 });
