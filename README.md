@@ -14,7 +14,7 @@ A web app with no runtime dependencies that runs on Cloudflare Workers (free) or
 
 Public pages: user guide, external registration sites (SCFHS, CDC TRAIN, OpenWHO, NCBE, PROSPERO…), references to download.
 
-The 91 requirements are pre-filled from the promotion handbook, dated for the training year starting in October of `YEAR_START`.
+The 55 requirements of the program's official promotion list (R1–R4) are pre-filled, dated for the training year starting in October of `YEAR_START`.
 
 Screenshots: `docs/screenshots/`.
 
