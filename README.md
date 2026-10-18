@@ -1,4 +1,10 @@
-# Promotion Requirements Portal (Preventive Medicine R1–R4)
+# Preventive Medicine Board — Armed Forces Hospital Southern Region
+
+The board's website (home, about, training program, requirements, trainee guide, resources) with the trainee requirements portal built in.
+
+**Editing the website text:** all board wording (welcome message, mission, vision, values, training domains, contact details) is in [`public/content.js`](public/content.js). Logo files are in `public/brand/`.
+
+## Requirements portal
 
 A web app with no runtime dependencies that runs on Cloudflare Workers (free) or any Node.js ≥ 20 server. for receiving and grading trainee requirements.
 

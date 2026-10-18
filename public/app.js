@@ -32,14 +32,17 @@ const errBox = (e) => { $('#e').innerHTML = `<div class="err">${esc(e.message ||
 
 function nav() {
   const h = location.hash || '#';
-  const links = !ME
-    ? [['#catalog', 'Requirements'], ['#login', 'Sign in'], ['#register', 'Register'], ['#guide', 'User guide'], ['#sites', 'External sites'], ['#refs', 'References']]
-    : ME.role === 'admin'
-      ? [['#admin/users', 'Trainees'], ['#admin/reqs', 'Requirements'], ['#admin/subs', 'Submissions'], ['#guide', 'Guide'], ['#refs', 'References']]
-      : [['#dash', 'My requirements'], ['#catalog', 'All requirements'], ['#guide', 'User guide'], ['#sites', 'External sites'], ['#refs', 'References']];
-  $('#nav').innerHTML = links.map(([k, t]) => `<a href="${k}" class="${h.startsWith(k) ? 'on' : ''}">${t}</a>`).join('') +
-    (ME ? `<button id="out">Sign out (${esc(ME.name)})</button>` : '');
-  if (ME) $('#out').onclick = async () => { await api('logout', { method: 'POST' }); ME = null; location.hash = '#login'; };
+  const site = [['#', 'Home'], ['#about', 'About the Board'], ['#program', 'Training Program'], ['#catalog', 'Requirements'], ['#guide', 'Trainee Guide'], ['#resources', 'Resources']];
+  const portal = !ME ? [] : ME.role === 'admin'
+    ? [['#admin/users', 'Trainees'], ['#admin/reqs', 'Manage requirements'], ['#admin/subs', 'Submissions']]
+    : [['#dash', 'My requirements']];
+  const on = (k) => (k === '#' ? h === '#' || h === '' : h.startsWith(k)) ? 'on' : '';
+  $('#nav').innerHTML = site.map(([k, t]) => `<a href="${k}" class="${on(k)}">${t}</a>`).join('') +
+    (portal.length ? '<span class="sep"></span>' + portal.map(([k, t]) => `<a href="${k}" class="${on(k)}">${t}</a>`).join('') : '');
+  $('#acct').innerHTML = ME
+    ? `<button id="out" title="${esc(ME.name)}">Sign out</button>`
+    : '<a href="#login">Sign in</a><a class="pri" href="#register">Register</a>';
+  if (ME) $('#out').onclick = async () => { await api('logout', { method: 'POST' }); ME = null; location.hash = '#'; };
 }
 
 // ---------- Sign in and registration ----------
@@ -274,6 +277,90 @@ function grade(s, R) {
   $('#dlg').showModal();
 }
 
+// ---------- Board website ----------
+
+const S = window.SITE;
+const MON3 = (d) => new Date(d).toLocaleString('en-GB', { month: 'short', timeZone: 'Asia/Riyadh' }).toUpperCase();
+const DAY = (d) => new Date(d).toLocaleString('en-GB', { day: 'numeric', timeZone: 'Asia/Riyadh' });
+
+function footer() {
+  const c = S.contact || {};
+  $('#foot').innerHTML = `<div class="sec">
+    <div class="fb"><img src="brand/shield.png" alt="" width="54" height="63"><div><h4>${esc(S.board)}</h4>${esc(S.hospital)}</div></div>
+    <div><h4>The Board</h4><ul><li><a href="#about">About</a></li><li><a href="#program">Training Program</a></li><li><a href="#catalog">Requirements</a></li></ul></div>
+    <div><h4>Trainees</h4><ul><li><a href="#guide">Trainee Guide</a></li><li><a href="#resources">Resources</a></li><li><a href="${ME ? (ME.role === 'admin' ? '#admin/users' : '#dash') : '#login'}">Trainee portal</a></li>
+      ${c.email ? `<li><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></li>` : ''}${c.phone ? `<li>${esc(c.phone)}</li>` : ''}</ul></div>
+    <div class="copy">© ${new Date().getFullYear()} ${esc(S.board)} · ${esc(S.hospital)}</div></div>`;
+}
+
+async function viewHome() {
+  const { levels, requirements } = await api('catalog');
+  const now = Date.now();
+  const upcoming = requirements.filter((r) => r.closeAt && new Date(r.closeAt) > now && r.window !== 'OCT–JUL')
+    .sort((a, b) => a.closeAt.localeCompare(b.closeAt)).slice(0, 6);
+  const per = (l) => requirements.filter((r) => r.level === l).length;
+  app.innerHTML = `
+  <section class="hero"><div class="sec">
+    <div style="display:grid;gap:14px"><span class="kicker">${esc(S.short)} · Residency Training Program</span>
+      <h1>${esc(S.hero.title)}</h1><p>${esc(S.hero.text)}</p>
+      <div class="ctas">${ME ? `<a class="pri" href="${ME.role === 'admin' ? '#admin/users' : '#dash'}">Go to my portal</a>` : '<a class="pri" href="#register">Register as a trainee</a>'}<a href="#catalog">View requirements</a></div></div>
+    <div class="logo-card"><img src="brand/logo.png" alt="${esc(S.board)} — ${esc(S.hospital)}" width="1100" height="323"></div>
+  </div></section>
+  <div class="sec"><div class="stats">
+    <div class="stat"><b>4</b><span>years of training (R1–R4)</span></div>
+    <div class="stat"><b>${requirements.length}</b><span>promotion requirements</span></div>
+    <div class="stat"><b>100</b><span>points per requirement, criteria published</span></div>
+    <div class="stat"><b>${esc((S.academicDay || '').replace('Every ', ''))}</b><span>weekly academic day</span></div>
+  </div></div>
+  <div class="sec block"><div class="quote"><span class="kicker">${esc(S.welcome.title)}</span>${S.welcome.paragraphs.map((x) => `<p>${esc(x)}</p>`).join('')}<span class="sig">— ${esc(S.welcome.signature)}</span></div></div>
+  <div class="sec block"><span class="kicker">The training journey</span><h2>Four levels, one path to consultant</h2>
+    <div class="grid4">${['R1', 'R2', 'R3', 'R4'].map((l) => `<div class="tile lvl"><h3>${esc(levels[l]?.title || l)}</h3><p class="muted">${esc(levels[l]?.desc || '')}</p><a href="#catalog" data-l="${l}">${per(l)} requirements →</a></div>`).join('')}</div></div>
+  <div class="sec block"><span class="kicker">Coming up</span><h2>Next deadlines</h2>
+    <div class="deadlines">${upcoming.map((r) => `<a class="dl" href="#catalog" data-l="${r.level}" style="text-decoration:none;color:inherit"><span class="d"><i>${MON3(r.closeAt)}</i><b>${DAY(r.closeAt)}</b></span><span><b>${esc(r.title)}</b><br><small class="muted">${r.level} · closes ${fmt(r.closeAt)}</small></span><span class="tag t-${r.state}">${STATE[r.state]}</span></a>`).join('') || '<p class="muted">No upcoming deadlines.</p>'}</div>
+    <p class="muted">CAP, CAT, seminars, CBD and Mini-CEX are presented in turn at the weekly academic day and can be submitted any time until 31 July.</p></div>
+  <div class="sec block"><span class="kicker">Trainee portal</span><h2>Submit your requirements in three steps</h2>
+    <div class="grid3">
+      <div class="tile"><span class="num">1</span><h3>Register</h3><p class="muted">Create your account with your SCFHS number and training level.</p></div>
+      <div class="tile"><span class="num">2</span><h3>Get activated</h3><p class="muted">The program administration reviews and activates your account.</p></div>
+      <div class="tile"><span class="num">3</span><h3>Upload &amp; get feedback</h3><p class="muted">Upload within each window; your score and the assessor's feedback appear in the portal.</p></div>
+    </div></div>`;
+  app.querySelectorAll('[data-l]').forEach((a) => a.addEventListener('click', () => { catalogLevel = a.dataset.l; }));
+}
+
+function pageHead(kicker, title, text) {
+  return `<section class="page-head"><div class="sec"><span class="kicker" style="color:#a8d8aa">${esc(kicker)}</span><h1>${esc(title)}</h1>${text ? `<p>${esc(text)}</p>` : ''}</div></section>`;
+}
+
+function viewAbout() {
+  const a = S.about, c = S.contact || {};
+  app.innerHTML = pageHead(S.hospital, 'About the Board', '') + `
+  <div class="sec block"><p style="font-size:1.1rem">${esc(a.overview)}</p>
+    <div class="grid3"><div class="tile"><span class="kicker">Mission</span><p>${esc(a.mission)}</p></div><div class="tile"><span class="kicker">Vision</span><p>${esc(a.vision)}</p></div></div></div>
+  <div class="sec block"><span class="kicker">What we stand for</span><h2>Values</h2>
+    <div class="grid4">${a.values.map(([t, d]) => `<div class="tile"><h3>${esc(t)}</h3><p class="muted">${esc(d)}</p></div>`).join('')}</div></div>
+  <div class="sec block"><span class="kicker">What our residents learn</span><h2>Training domains</h2>
+    <div class="grid3">${a.domains.map(([t, d], i) => `<div class="tile"><span class="num">${i + 1}</span><h3>${esc(t)}</h3><p class="muted">${esc(d)}</p></div>`).join('')}</div></div>
+  ${c.email || c.phone || c.location ? `<div class="sec block"><span class="kicker">Contact</span><div class="tile">${c.location ? `<p>${esc(c.location)}</p>` : ''}${c.email ? `<p><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></p>` : ''}${c.phone ? `<p>${esc(c.phone)}</p>` : ''}</div></div>` : ''}`;
+}
+
+async function viewProgram() {
+  const { levels, requirements } = await api('catalog');
+  app.innerHTML = pageHead('Training Program', 'Program structure R1–R4', 'Each level builds on the last. Promotion to the next level requires completing that level’s requirements, each graded out of 100.') + `
+  <div class="sec block">${['R1', 'R2', 'R3', 'R4'].map((l) => {
+    const list = requirements.filter((r) => r.level === l);
+    return `<div class="tile lvl" style="margin-bottom:14px"><h2>${esc(levels[l]?.title || l)}</h2><p class="muted">${esc(levels[l]?.desc || '')}</p>
+      <div class="tw"><table><tr><th>Requirement</th><th>Window</th></tr>${list.map((r) => `<tr><td>${esc(r.title)}</td><td><span class="win">${esc(r.window)}</span></td></tr>`).join('')}</table></div>
+      <a href="#catalog" data-l="${l}">Details, file types and grading for ${l} →</a></div>`;
+  }).join('')}</div>
+  <div class="sec block"><span class="kicker">Assessment</span><h2>How requirements are graded</h2>
+    <div class="grid3">
+      <div class="tile"><h3>90 points · content</h3><p class="muted">Each requirement has its own published criteria, rated Excellent 100% · Adequate 70% · Weak 40% · Absent 0%.</p></div>
+      <div class="tile"><h3>10 points · on time</h3><p class="muted">On time 10 · 1–7 days late 5 · more than 7 days 0. Uploads close 14 days after the deadline.</p></div>
+      <div class="tile"><h3>Result bands</h3><p class="muted">≥90 exceeds · 70–89 meets · 50–69 borderline · below 50 does not meet expectation.</p></div>
+    </div></div>`;
+  app.querySelectorAll('[data-l]').forEach((a) => a.addEventListener('click', () => { catalogLevel = a.dataset.l; }));
+}
+
 // ---------- Public requirements catalog ----------
 
 let catalogLevel = 'R1';
@@ -307,7 +394,7 @@ async function viewCatalog() {
 // ---------- Information pages ----------
 
 function viewGuide() {
-  app.innerHTML = `<h1>User guide</h1>
+  app.innerHTML = `<h1>Trainee Guide</h1>
   <div class="card"><h2>For trainees</h2><ol class="steps">
    <li><b>Register:</b> under “Register”, enter your name as in SCFHS records, your email, SCFHS classification number and level (R1–R4).</li>
    <li><b>Wait for activation:</b> the administration reviews and activates your account. You cannot sign in before that.</li>
@@ -337,18 +424,13 @@ function viewGuide() {
 
 const SITES = [
   ['Saudi Commission for Health Specialties (SCFHS)', 'https://www.scfhs.org.sa/', ['Create an account on the SCFHS portal (Mumaris+) with your national ID and email.', 'Take the universal-topic e-modules (marked *) on the SCFHS e-learning platform with the same account.', 'Download the certificate after passing the quiz and upload it as a PDF.']],
-  ['CDC TRAIN (Health Literacy, Communicating Science Clearly, CERC, ERHMS)', 'https://www.train.org/cdctrain/', ['Click Create an Account, choose the CDC group, and confirm your email.', 'Search by course ID (e.g. 1105934 or 1112747) or name, then Register and Launch.', 'When finished: Your Learning → Completed → Certificate; save it as a PDF.']],
+  ['CDC TRAIN (online public health courses)', 'https://www.train.org/cdctrain/', ['Click Create an Account, choose the CDC group, and confirm your email.', 'Search for the course by name, then Register and Launch.', 'When finished: Your Learning → Completed → Certificate; save it as a PDF.']],
   ['WHO Vaccine Safety Basics', 'https://vaccine-safety-training.org/', ['Register with your email.', 'Complete the modules and the final test.', 'Download the certificate from your account page.']],
   ['OpenWHO (free WHO courses)', 'https://openwho.org/', ['Register with email or a Google account.', 'Enroll in the course and complete the units.', 'The Record of Achievement appears under Certificates.']],
   ['National Committee of Bioethics (NCBE)', 'http://bioethics.kacst.edu.sa/', ['Register as a researcher and complete the research ethics course.', 'Save the registration/course certificate (it expires — check the date).', 'You will need it when submitting your research protocol to the IRB.']],
   ['PROSPERO (systematic review registration)', 'https://www.crd.york.ac.uk/prospero/', ['Create an account (Join).', 'Register a review and complete the protocol form before screening starts.', 'Save the CRD registration number and add it to your proposal.']],
   ['Web of Science Master Journal List', 'https://mjl.clarivate.com/', ['Search by journal name or ISSN.', 'Make sure it is in SCIE/SSCI before submitting.', 'Keep the submission email and manuscript ID as proof.']],
 ];
-
-function viewSites() {
-  app.innerHTML = `<h1>External registration sites</h1><div class="box">Some requirements are completed on external sites. Use your official email and your name as in SCFHS records so certificates match your file.</div>
-  ${SITES.map(([t, u, s]) => `<div class="card"><h2>${esc(t)}</h2><a href="${u}" target="_blank" rel="noopener">${u}</a><ol class="steps">${s.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>`).join('')}`;
-}
 
 const REFS = {
   'Curriculum and regulations': [['SCFHS – curricula, bylaws and forms', 'https://www.scfhs.org.sa/'], ['Saudi MOH Statistical Yearbook', 'https://www.moh.gov.sa/en/Ministry/Statistics/book/Pages/default.aspx'], ['GASTAT', 'https://www.stats.gov.sa/']],
@@ -359,9 +441,13 @@ const REFS = {
   'Programs and evaluation': [['CDC Program Evaluation Framework', 'https://www.cdc.gov/evaluation/'], ['RE-AIM', 'https://re-aim.org/']],
 };
 
-function viewRefs() {
-  app.innerHTML = `<h1>References to download</h1><p class="muted">Official links to the checklists, forms and guides used in the requirements.</p>
-  ${Object.entries(REFS).map(([g, l]) => `<div class="card"><h2>${g}</h2><ul>${l.map(([t, u]) => `<li><a href="${u}" target="_blank" rel="noopener">${esc(t)}</a> <small class="muted">${u.replace(/^https?:\/\//, '')}</small></li>`).join('')}</ul></div>`).join('')}`;
+function viewResources() {
+  app.innerHTML = pageHead('Resources', 'Resources for trainees', 'Where to register for external courses, and the official checklists, guidelines and forms used in the requirements.') + `
+  <div class="sec block"><span class="kicker">External registration sites</span><h2>Courses and registrations</h2>
+    <p class="muted">Use your official email and your name as in SCFHS records so certificates match your file.</p>
+    <div class="grid3">${SITES.map(([t, u, st]) => `<div class="tile"><h3>${esc(t)}</h3><a href="${u}" target="_blank" rel="noopener">${u.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a><ol class="steps">${st.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>`).join('')}</div></div>
+  <div class="sec block"><span class="kicker">References to download</span><h2>Checklists, guidelines and forms</h2>
+    <div class="grid3">${Object.entries(REFS).map(([g, l]) => `<div class="tile"><h3>${g}</h3><ul>${l.map(([t, u]) => `<li><a href="${u}" target="_blank" rel="noopener">${esc(t)}</a></li>`).join('')}</ul></div>`).join('')}</div></div>`;
 }
 
 // ---------- Routing ----------
@@ -370,8 +456,13 @@ async function route() {
   const h = (location.hash || '#').slice(1);
   if (ME === null) { try { const r = await api('me'); ME = r.user; LEVELS = r.levels; } catch { ME = false; } }
   nav();
-  const pub = { catalog: viewCatalog, login: viewLogin, register: viewRegister, guide: viewGuide, sites: viewSites, refs: viewRefs };
+  footer();
+  const site = { '': viewHome, about: viewAbout, program: viewProgram, resources: viewResources, sites: viewResources, refs: viewResources };
+  const pub = { catalog: viewCatalog, login: viewLogin, register: viewRegister, guide: viewGuide };
+  app.classList.toggle('wide', h in site);
+  window.scrollTo(0, 0);
   try {
+    if (site[h]) return await site[h]();
     if (pub[h]) return await pub[h]();
     if (!ME) return viewLogin();
     if (ME.role === 'admin') return await ({ 'admin/reqs': viewReqsAdmin, 'admin/subs': viewSubs }[h] || viewUsers)();
