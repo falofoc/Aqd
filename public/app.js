@@ -305,7 +305,7 @@ function viewHome() {
   <section class="hero"><div class="sec">
     <div style="display:grid;gap:14px"><span class="kicker">${esc(S.hero.kicker)}</span>
       <h1>${esc(S.hero.title)}</h1><p>${esc(S.hero.text)}</p>
-      <div class="ctas"><a class="pri" href="#program">Explore the program</a><a href="${portalHref}">Trainee Portal</a></div></div>
+      <div class="ctas"><a class="pri" href="#program">Explore the program</a><a href="${portalHref}">Trainee Portal</a></div>${ME ? "" : `<a href="#start" style="color:#ffd88a;font-weight:700">New trainee? Start here →</a>`}</div>
     <div class="logo-card"><img src="brand/logo.png" alt="${esc(S.board)} — ${esc(S.hospital)}" width="1100" height="323"></div>
   </div></section>
   <div class="sec"><div class="stats">${S.facts.map(([n, t]) => `<div class="stat"><b>${esc(n)}</b><span>${esc(t)}</span></div>`).join('')}</div></div>
@@ -386,10 +386,95 @@ function viewAssessment() {
   <div class="quote"><span class="kicker">Promotion requirements</span><p>Each level’s promotion requirements — with deadlines, file types and grading criteria — are in the Trainee Portal.</p><p><a class="btn pri" href="#catalog">View promotion requirements</a></p></div>${source()}</div>`;
 }
 
+// ---------- Onboarding story (#start) ----------
+
+let storyTimer = null;
+async function viewStart() {
+  const [{ requirements }, { closedLevels }] = await Promise.all([api('catalog'), api('registration')]);
+  const n = requirements.length;
+  const lv = (l) => requirements.filter((r) => r.level === l).length;
+  const next = requirements.filter((r) => r.closeAt && new Date(r.closeAt) > Date.now() && r.window !== 'OCT–JUL').sort((a, b) => a.closeAt.localeCompare(b.closeAt))[0];
+  const days = next ? Math.ceil((new Date(next.closeAt) - Date.now()) / 864e5) : null;
+  const slides = [
+    { cls: 's-hook', html: `<img class="s-logo" src="brand/shield.png" alt=""><p class="s-k">${esc(S.board)}</p><h1 class="s-big">Your promotion<br><em>lives here.</em></h1><p class="s-sub">60 seconds. Then you’re in.</p>` },
+    { cls: 's-dark', html: `<p class="s-k">The requirements</p><h1 class="s-num" data-count="${n}">0</h1><p class="s-sub">promotion requirements across four years.</p><div class="s-bars">${['R1', 'R2', 'R3', 'R4'].map((l, i) => `<div style="--h:${lv(l) * 5}px;--d:${i * 0.12}s"><b>${lv(l)}</b><span>${l}</span></div>`).join('')}</div>` },
+    { cls: 's-green', html: `<p class="s-k">Why they matter</p><h1 class="s-big">No requirements,<br><em>no promotion.</em></h1><p class="s-sub">They are how the program measures your progress — CAPs, CATs, seminars, CBDs, Mini-CEX, courses, projects and research.</p>` },
+    { cls: 's-light', html: `<p class="s-k">Deadlines are real</p><h1 class="s-big">Every requirement<br>has a <em>window.</em></h1><div class="s-timeline"><span class="o">Opens</span><span class="c">Closes</span><span class="l">+14 days late</span><span class="x">Locked</span></div><p class="s-sub">${next ? `Next deadline: <b>${esc(next.title)}</b> (${next.level}) — <b>${days} day${days === 1 ? '' : 's'}</b> left.` : 'Upload inside the window to keep your 10 timeliness points.'}</p>` },
+    { cls: 's-dark', html: `<p class="s-k">How you submit</p><h1 class="s-big">Three steps.<br><em>That’s it.</em></h1><ol class="s-steps"><li><b>Register</b><span>with your SCFHS number</span></li><li><b>Get activated</b><span>by the program administration</span></li><li><b>Upload</b><span>PDF, Word or slides — inside the window</span></li></ol>` },
+    { cls: 's-light', html: `<p class="s-k">How you’re graded</p><div class="s-score"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52"/><circle class="arc" cx="60" cy="60" r="52"/></svg><b>100</b></div><div class="s-split"><div><b>90</b><span>content · published criteria</span></div><div><b>10</b><span>on time · automatic</span></div></div><p class="s-sub">Excellent 100% · Adequate 70% · Weak 40% · Absent 0% — and your score and feedback appear in the portal.</p>` },
+    { cls: 's-reg', html: `<p class="s-k">Ready?</p><h1 class="s-mid">Create your account</h1><form id="sf" class="s-form">
+        <input name="name" placeholder="Full name (as in SCFHS records)" required autocomplete="name">
+        <input name="email" type="email" placeholder="Email" required autocomplete="email">
+        <input name="phone" inputmode="tel" placeholder="Mobile number" autocomplete="tel">
+        <input name="scfhs" placeholder="SCFHS classification number" required>
+        <select name="level">${['R1', 'R2', 'R3', 'R4'].map((l) => `<option ${closedLevels.includes(l) ? 'disabled' : ''} value="${l}">${l}${closedLevels.includes(l) ? ' — registration closed' : ''}</option>`).join('')}</select>
+        <input name="password" type="password" minlength="8" placeholder="Password (8+ characters)" required autocomplete="new-password">
+        <div id="e"></div><button class="s-cta">Join the portal →</button>
+        <a class="s-alt" href="#login">Already registered? Sign in</a></form>` },
+  ];
+  document.body.classList.add('story-on');
+  app.innerHTML = `<div class="story" id="story">
+    <div class="s-prog">${slides.map(() => '<i><b></b></i>').join('')}</div>
+    <a class="s-close" href="#portal" aria-label="Close">✕</a>
+    ${slides.map((sl, i) => `<section class="slide ${sl.cls}" data-i="${i}"><div class="s-in">${sl.html}</div></section>`).join('')}
+    <button class="s-nav prev" aria-label="Previous"></button><button class="s-nav next" aria-label="Next"></button>
+    <button class="s-skip">Skip to registration</button>
+    <p class="s-hint">Tap to continue</p>
+  </div>`;
+  const st = $('#story'), secs = [...st.querySelectorAll('.slide')], bars = [...st.querySelectorAll('.s-prog b')];
+  const DUR = 5200, last = secs.length - 1;
+  let cur = -1, t0 = 0, paused = false, raf = null;
+  const count = (el) => { const to = +el.dataset.count, s0 = performance.now(); const f = (t) => { const k = Math.min(1, (t - s0) / 900); el.textContent = Math.round(to * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(f); }; requestAnimationFrame(f); };
+  const go = (i) => {
+    i = Math.max(0, Math.min(last, i));
+    if (i === cur) return;
+    cur = i; t0 = performance.now();
+    secs.forEach((s, k) => s.classList.toggle('on', k === i));
+    bars.forEach((b, k) => { b.style.width = k < i ? '100%' : '0%'; });
+    st.classList.toggle('at-end', i === last);
+    st.classList.toggle('on-light', secs[i].classList.contains('s-light'));
+    secs[i].querySelectorAll('[data-count]').forEach(count);
+    if (i === last) { bars[i].style.width = '100%'; setTimeout(() => $('#sf input')?.focus({ preventScroll: true }), 450); }
+  };
+  const tick = (t) => {
+    if (!document.body.contains(st)) return;
+    if (!paused && cur < last) { const k = (t - t0) / DUR; bars[cur].style.width = Math.min(100, k * 100) + '%'; if (k >= 1) go(cur + 1); }
+    else if (paused) t0 += t - (tick.prev || t);
+    tick.prev = t; raf = requestAnimationFrame(tick);
+  };
+  st.querySelector('.next').onclick = () => go(cur + 1);
+  st.querySelector('.prev').onclick = () => go(cur - 1);
+  st.querySelector('.s-skip').onclick = () => go(last);
+  const hold = (v) => () => { paused = v; };
+  ['pointerdown'].forEach((e) => st.addEventListener(e, (ev) => { if (!ev.target.closest('form,a,button')) paused = true; }));
+  ['pointerup', 'pointercancel'].forEach((e) => st.addEventListener(e, hold(false)));
+  let sx = null;
+  st.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; }, { passive: true });
+  st.addEventListener('touchend', (e) => { if (sx === null) return; const dx = e.changedTouches[0].clientX - sx; if (Math.abs(dx) > 50 && !e.target.closest('form')) go(cur + (dx < 0 ? 1 : -1)); sx = null; });
+  storyKeys = (e) => { if (e.target.closest && e.target.closest('form')) return; if (e.key === 'ArrowRight' || e.key === ' ') go(cur + 1); if (e.key === 'ArrowLeft') go(cur - 1); };
+  document.addEventListener('keydown', storyKeys);
+  go(0); raf = requestAnimationFrame(tick);
+
+  const f = $('#sf');
+  const open = ['R1', 'R2', 'R3', 'R4'].filter((l) => !closedLevels.includes(l));
+  if (!open.length) f.innerHTML = '<p class="s-sub">Registration is closed for now.</p>';
+  else f.level.value = open[0];
+  f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const btn = f.querySelector('.s-cta'); btn.disabled = true; btn.textContent = 'Creating your account…';
+    try {
+      const r = await api('register', { body: Object.fromEntries(new FormData(f)) });
+      secs[last].querySelector('.s-in').innerHTML = `<div class="s-done"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l7 7 15-16"/></svg></div><h1 class="s-mid">You’re in the queue.</h1><p class="s-sub">${esc(r.message)}</p><p class="s-sub">Meanwhile, look at what’s waiting for you:</p><a class="s-cta" href="#catalog">See the requirements →</a>`;
+    } catch (e) { errBox(e); btn.disabled = false; btn.textContent = 'Join the portal →'; }
+  };
+}
+let storyKeys = null;
+
 // ---------- Trainee portal ----------
 
 function viewPortal() {
-  app.innerHTML = `<div class="box"><span class="kicker">Trainee Portal</span><h1>Promotion requirements</h1>
+  app.innerHTML = `<a class="story-teaser" href="#start"><span>▶</span><b>New here? Watch the 60-second intro and register</b></a>
+  <div class="box"><span class="kicker">Trainee Portal</span><h1>Promotion requirements</h1>
     <p>Everything about your promotion requirements in one place: what is required at each level, when, in what format, and how it is graded. Register to submit your work and receive your evaluation.</p></div>
   <div class="grid3">
     <a class="tile" href="#catalog" style="text-decoration:none;color:inherit"><h3>Requirements R1–R4 →</h3><p class="muted">Every requirement with its window, file type, steps and grading criteria.</p></a>
@@ -496,8 +581,10 @@ async function route() {
   nav();
   footer();
   const site = { '': viewHome, about: viewAbout, specialty: viewSpecialty, program: viewProgram, competencies: viewCompetencies, research: viewResearch, assessment: viewAssessment, resources: viewResources, sites: viewResources, refs: viewResources };
-  const pub = { portal: viewPortal, catalog: viewCatalog, login: viewLogin, register: viewRegister, guide: viewGuide };
+  const pub = { start: viewStart, portal: viewPortal, catalog: viewCatalog, login: viewLogin, register: viewRegister, guide: viewGuide };
   app.classList.toggle('wide', h in site);
+  document.body.classList.remove('story-on');
+  if (storyKeys) { document.removeEventListener('keydown', storyKeys); storyKeys = null; }
   window.scrollTo(0, 0);
   try {
     if (site[h]) return await site[h]();
