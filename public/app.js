@@ -305,7 +305,7 @@ function viewHome() {
   <section class="hero"><div class="sec">
     <div style="display:grid;gap:14px"><span class="kicker">${esc(S.hero.kicker)}</span>
       <h1>${esc(S.hero.title)}</h1><p>${esc(S.hero.text)}</p>
-      <div class="ctas"><a class="pri" href="#program">Explore the program</a><a href="${portalHref}">Trainee Portal</a></div>${ME ? "" : `<a href="#start" style="color:#ffd88a;font-weight:700">New trainee? Start here →</a>`}</div>
+      <div class="ctas"><a class="pri" href="#program">Explore the program</a><a href="${portalHref}">Trainee Portal</a></div>${ME || seenStart() ? "" : `<a href="#start" style="color:#ffd88a;font-weight:700">New trainee? Start here →</a>`}</div>
     <div class="logo-card"><img src="brand/logo.png" alt="${esc(S.board)} — ${esc(S.hospital)}" width="1100" height="323"></div>
   </div></section>
   <div class="sec"><div class="stats">${S.facts.map(([n, t]) => `<div class="stat"><b>${esc(n)}</b><span>${esc(t)}</span></div>`).join('')}</div></div>
@@ -388,8 +388,12 @@ function viewAssessment() {
 
 // ---------- Onboarding story (#start) ----------
 
-let storyTimer = null;
+// Once someone has opened the intro, links pointing to it are hidden.
+const SEEN_START = 'seenStart';
+const seenStart = () => { try { return localStorage.getItem(SEEN_START) === '1'; } catch { return false; } };
+
 async function viewStart() {
+  try { localStorage.setItem(SEEN_START, '1'); } catch {}
   const [{ requirements }, { closedLevels }] = await Promise.all([api('catalog'), api('registration')]);
   const n = requirements.length;
   const lv = (l) => requirements.filter((r) => r.level === l).length;
@@ -410,7 +414,8 @@ async function viewStart() {
         <select name="level">${['R1', 'R2', 'R3', 'R4'].map((l) => `<option ${closedLevels.includes(l) ? 'disabled' : ''} value="${l}">${l}${closedLevels.includes(l) ? ' — registration closed' : ''}</option>`).join('')}</select>
         <input name="password" type="password" minlength="8" placeholder="Password (8+ characters)" required autocomplete="new-password">
         <div id="e"></div><button class="s-cta">Join the portal →</button>
-        <a class="s-alt" href="#login">Already registered? Sign in</a></form>` },
+        <a class="s-alt" href="#login">Already registered? Sign in</a>
+        <a class="s-home" href="#">← Back to the main site</a></form>` },
   ];
   document.body.classList.add('story-on');
   app.innerHTML = `<div class="story" id="story">
@@ -464,7 +469,7 @@ async function viewStart() {
     const btn = f.querySelector('.s-cta'); btn.disabled = true; btn.textContent = 'Creating your account…';
     try {
       const r = await api('register', { body: Object.fromEntries(new FormData(f)) });
-      secs[last].querySelector('.s-in').innerHTML = `<div class="s-done"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l7 7 15-16"/></svg></div><h1 class="s-mid">You’re in the queue.</h1><p class="s-sub">${esc(r.message)}</p><p class="s-sub">Meanwhile, look at what’s waiting for you:</p><a class="s-cta" href="#catalog">See the requirements →</a>`;
+      secs[last].querySelector('.s-in').innerHTML = `<div class="s-done"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l7 7 15-16"/></svg></div><h1 class="s-mid">You’re in the queue.</h1><p class="s-sub">${esc(r.message)}</p><p class="s-sub">Meanwhile, look at what’s waiting for you:</p><a class="s-cta" href="#catalog">See the requirements →</a><a class="s-home" href="#">← Back to the main site</a>`;
     } catch (e) { errBox(e); btn.disabled = false; btn.textContent = 'Join the portal →'; }
   };
 }
@@ -473,7 +478,7 @@ let storyKeys = null;
 // ---------- Trainee portal ----------
 
 function viewPortal() {
-  app.innerHTML = `<a class="story-teaser" href="#start"><span>▶</span><b>New here? Watch the 60-second intro and register</b></a>
+  app.innerHTML = `${ME || seenStart() ? '' : '<a class="story-teaser" href="#start"><span>▶</span><b>New here? Watch the 60-second intro and register</b></a>'}
   <div class="box"><span class="kicker">Trainee Portal</span><h1>Promotion requirements</h1>
     <p>Everything about your promotion requirements in one place: what is required at each level, when, in what format, and how it is graded. Register to submit your work and receive your evaluation.</p></div>
   <div class="grid3">
