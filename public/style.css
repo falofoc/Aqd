@@ -252,3 +252,5 @@ body.story-on #app{max-width:none;padding:0}
 .story.on-light .s-prog i{background:#233b3d33}.story.on-light .s-prog b{background:#233b3d}
 .story.on-light .s-close{color:#233b3d}
 .s-bars{margin-top:30px}
+
+.s-home{display:block;text-align:center;color:#fff;font-weight:600;text-decoration:none;padding:10px;border:1px solid #ffffff40;border-radius:12px}
