@@ -31,18 +31,19 @@ const fromLocalInput = (v) => v ? new Date(v + ':00+03:00').toISOString() : null
 const errBox = (e) => { $('#e').innerHTML = `<div class="err">${esc(e.message || e)}</div>`; };
 
 function nav() {
-  const h = location.hash || '#';
-  const site = [['#', 'Home'], ['#about', 'About the Board'], ['#program', 'Training Program'], ['#catalog', 'Requirements'], ['#guide', 'Trainee Guide'], ['#resources', 'Resources']];
-  const portal = !ME ? [] : ME.role === 'admin'
-    ? [['#admin/users', 'Trainees'], ['#admin/reqs', 'Manage requirements'], ['#admin/subs', 'Submissions']]
-    : [['#dash', 'My requirements']];
-  const on = (k) => (k === '#' ? h === '#' || h === '' : h.startsWith(k)) ? 'on' : '';
-  $('#nav').innerHTML = site.map(([k, t]) => `<a href="${k}" class="${on(k)}">${t}</a>`).join('') +
-    (portal.length ? '<span class="sep"></span>' + portal.map(([k, t]) => `<a href="${k}" class="${on(k)}">${t}</a>`).join('') : '');
+  const h = (location.hash || '#').slice(1);
+  const inPortal = PORTAL_ROUTES.includes(h) || h.startsWith('admin/');
+  const site = [['', 'Home'], ['about', 'About'], ['specialty', 'The Specialty'], ['program', 'Training Program'], ['competencies', 'Competencies'], ['research', 'Research'], ['assessment', 'Assessment & Exams'], ['resources', 'Resources']];
+  const portal = [['portal', 'Overview'], ['catalog', 'Requirements'], ['guide', 'Guide'],
+    ...(!ME ? [] : ME.role === 'admin' ? [['admin/users', 'Trainees'], ['admin/reqs', 'Manage requirements'], ['admin/subs', 'Submissions']] : [['dash', 'My requirements']])];
+  $('#nav').innerHTML = site.map(([k, t]) => `<a href="#${k}" class="${k === h ? 'on' : ''}">${t}</a>`).join('') +
+    `<a href="#portal" class="portal-link ${inPortal ? 'on' : ''}">Trainee Portal</a>`;
+  $('#subnav').hidden = !inPortal;
+  $('#subnav').innerHTML = '<span class="kicker">Trainee Portal</span>' + portal.map(([k, t]) => `<a href="#${k}" class="${k === h ? 'on' : ''}">${t}</a>`).join('');
   $('#acct').innerHTML = ME
     ? `<button id="out" title="${esc(ME.name)}">Sign out</button>`
     : '<a href="#login">Sign in</a><a class="pri" href="#register">Register</a>';
-  if (ME) $('#out').onclick = async () => { await api('logout', { method: 'POST' }); ME = null; location.hash = '#'; };
+  if (ME) $('#out').onclick = async () => { await api('logout', { method: 'POST' }); ME = null; location.hash = '#portal'; };
 }
 
 // ---------- Sign in and registration ----------
@@ -280,85 +281,122 @@ function grade(s, R) {
 // ---------- Board website ----------
 
 const S = window.SITE;
-const MON3 = (d) => new Date(d).toLocaleString('en-GB', { month: 'short', timeZone: 'Asia/Riyadh' }).toUpperCase();
-const DAY = (d) => new Date(d).toLocaleString('en-GB', { day: 'numeric', timeZone: 'Asia/Riyadh' });
+const PORTAL_ROUTES = ['portal', 'catalog', 'guide', 'login', 'register', 'dash', 'admin/users', 'admin/reqs', 'admin/subs'];
+const list = (items) => `<ul class="ticks">${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
+const source = () => `<p class="src">Source: <a href="${S.sourceUrl}" target="_blank" rel="noopener">${esc(S.source)}</a></p>`;
 
 function footer() {
   const c = S.contact || {};
   $('#foot').innerHTML = `<div class="sec">
     <div class="fb"><img src="brand/shield.png" alt="" width="54" height="63"><div><h4>${esc(S.board)}</h4>${esc(S.hospital)}</div></div>
-    <div><h4>The Board</h4><ul><li><a href="#about">About</a></li><li><a href="#program">Training Program</a></li><li><a href="#catalog">Requirements</a></li></ul></div>
-    <div><h4>Trainees</h4><ul><li><a href="#guide">Trainee Guide</a></li><li><a href="#resources">Resources</a></li><li><a href="${ME ? (ME.role === 'admin' ? '#admin/users' : '#dash') : '#login'}">Trainee portal</a></li>
+    <div><h4>The Board</h4><ul><li><a href="#about">About</a></li><li><a href="#specialty">The Specialty</a></li><li><a href="#program">Training Program</a></li><li><a href="#assessment">Assessment &amp; Exams</a></li></ul></div>
+    <div><h4>Trainees</h4><ul><li><a href="#portal">Trainee Portal</a></li><li><a href="#catalog">Promotion requirements</a></li><li><a href="#resources">Resources</a></li>
       ${c.email ? `<li><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></li>` : ''}${c.phone ? `<li>${esc(c.phone)}</li>` : ''}</ul></div>
     <div class="copy">© ${new Date().getFullYear()} ${esc(S.board)} · ${esc(S.hospital)}</div></div>`;
-}
-
-async function viewHome() {
-  const { levels, requirements } = await api('catalog');
-  const now = Date.now();
-  const upcoming = requirements.filter((r) => r.closeAt && new Date(r.closeAt) > now && r.window !== 'OCT–JUL')
-    .sort((a, b) => a.closeAt.localeCompare(b.closeAt)).slice(0, 6);
-  const per = (l) => requirements.filter((r) => r.level === l).length;
-  app.innerHTML = `
-  <section class="hero"><div class="sec">
-    <div style="display:grid;gap:14px"><span class="kicker">${esc(S.short)} · Residency Training Program</span>
-      <h1>${esc(S.hero.title)}</h1><p>${esc(S.hero.text)}</p>
-      <div class="ctas">${ME ? `<a class="pri" href="${ME.role === 'admin' ? '#admin/users' : '#dash'}">Go to my portal</a>` : '<a class="pri" href="#register">Register as a trainee</a>'}<a href="#catalog">View requirements</a></div></div>
-    <div class="logo-card"><img src="brand/logo.png" alt="${esc(S.board)} — ${esc(S.hospital)}" width="1100" height="323"></div>
-  </div></section>
-  <div class="sec"><div class="stats">
-    <div class="stat"><b>4</b><span>years of training (R1–R4)</span></div>
-    <div class="stat"><b>${requirements.length}</b><span>promotion requirements</span></div>
-    <div class="stat"><b>100</b><span>points per requirement, criteria published</span></div>
-    <div class="stat"><b>${esc((S.academicDay || '').replace('Every ', ''))}</b><span>weekly academic day</span></div>
-  </div></div>
-  <div class="sec block"><div class="quote"><span class="kicker">${esc(S.welcome.title)}</span>${S.welcome.paragraphs.map((x) => `<p>${esc(x)}</p>`).join('')}<span class="sig">— ${esc(S.welcome.signature)}</span></div></div>
-  <div class="sec block"><span class="kicker">The training journey</span><h2>Four levels, one path to consultant</h2>
-    <div class="grid4">${['R1', 'R2', 'R3', 'R4'].map((l) => `<div class="tile lvl"><h3>${esc(levels[l]?.title || l)}</h3><p class="muted">${esc(levels[l]?.desc || '')}</p><a href="#catalog" data-l="${l}">${per(l)} requirements →</a></div>`).join('')}</div></div>
-  <div class="sec block"><span class="kicker">Coming up</span><h2>Next deadlines</h2>
-    <div class="deadlines">${upcoming.map((r) => `<a class="dl" href="#catalog" data-l="${r.level}" style="text-decoration:none;color:inherit"><span class="d"><i>${MON3(r.closeAt)}</i><b>${DAY(r.closeAt)}</b></span><span><b>${esc(r.title)}</b><br><small class="muted">${r.level} · closes ${fmt(r.closeAt)}</small></span><span class="tag t-${r.state}">${STATE[r.state]}</span></a>`).join('') || '<p class="muted">No upcoming deadlines.</p>'}</div>
-    <p class="muted">CAP, CAT, seminars, CBD and Mini-CEX are presented in turn at the weekly academic day and can be submitted any time until 31 July.</p></div>
-  <div class="sec block"><span class="kicker">Trainee portal</span><h2>Submit your requirements in three steps</h2>
-    <div class="grid3">
-      <div class="tile"><span class="num">1</span><h3>Register</h3><p class="muted">Create your account with your SCFHS number and training level.</p></div>
-      <div class="tile"><span class="num">2</span><h3>Get activated</h3><p class="muted">The program administration reviews and activates your account.</p></div>
-      <div class="tile"><span class="num">3</span><h3>Upload &amp; get feedback</h3><p class="muted">Upload within each window; your score and the assessor's feedback appear in the portal.</p></div>
-    </div></div>`;
-  app.querySelectorAll('[data-l]').forEach((a) => a.addEventListener('click', () => { catalogLevel = a.dataset.l; }));
 }
 
 function pageHead(kicker, title, text) {
   return `<section class="page-head"><div class="sec"><span class="kicker" style="color:#a8d8aa">${esc(kicker)}</span><h1>${esc(title)}</h1>${text ? `<p>${esc(text)}</p>` : ''}</div></section>`;
 }
 
+function viewHome() {
+  const portalHref = ME ? (ME.role === 'admin' ? '#admin/users' : '#dash') : '#portal';
+  app.innerHTML = `
+  <section class="hero"><div class="sec">
+    <div style="display:grid;gap:14px"><span class="kicker">${esc(S.hero.kicker)}</span>
+      <h1>${esc(S.hero.title)}</h1><p>${esc(S.hero.text)}</p>
+      <div class="ctas"><a class="pri" href="#program">Explore the program</a><a href="${portalHref}">Trainee Portal</a></div></div>
+    <div class="logo-card"><img src="brand/logo.png" alt="${esc(S.board)} — ${esc(S.hospital)}" width="1100" height="323"></div>
+  </div></section>
+  <div class="sec"><div class="stats">${S.facts.map(([n, t]) => `<div class="stat"><b>${esc(n)}</b><span>${esc(t)}</span></div>`).join('')}</div></div>
+  <div class="sec block"><div class="quote"><span class="kicker">${esc(S.welcome.title)}</span>${S.welcome.paragraphs.map((x) => `<p>${esc(x)}</p>`).join('')}<span class="sig">— ${esc(S.welcome.signature)}</span></div></div>
+  <div class="sec block"><span class="kicker">Why preventive medicine</span><h2>${esc(S.quote)}</h2><p class="lead2">${esc(S.about.why)}</p></div>
+  <div class="sec block"><span class="kicker">The training journey</span><h2>Four years, one path to specialist</h2>
+    <div class="grid4">${S.program.years.map((y) => `<a class="tile lvl" href="#program" style="text-decoration:none;color:inherit"><span class="kicker">${y.level}</span><h3>${esc(y.title)}</h3><p class="muted">${esc(y.focus)}</p></a>`).join('')}</div></div>
+  <div class="sec block"><span class="kicker">Explore</span><h2>The Board at a glance</h2>
+    <div class="grid3">
+      ${[['#specialty', 'The Specialty', 'What preventive medicine is, where specialists work, and the health priorities they address.'],
+         ['#competencies', 'Competencies', 'The seven CanMEDS roles every graduate develops.'],
+         ['#research', 'Research', 'A review article and an original study — what is required and when.'],
+         ['#assessment', 'Assessment & Exams', 'Part 1, Part 2, continuous assessment and promotion.'],
+         ['#resources', 'Resources', 'Courses, checklists, guidelines and forms.'],
+         ['#portal', 'Trainee Portal', 'Promotion requirements: details, deadlines, submission and feedback.']]
+        .map(([h, t, d]) => `<a class="tile" href="${h}" style="text-decoration:none;color:inherit"><h3>${t} →</h3><p class="muted">${d}</p></a>`).join('')}
+    </div></div>`;
+}
+
 function viewAbout() {
   const a = S.about, c = S.contact || {};
   app.innerHTML = pageHead(S.hospital, 'About the Board', '') + `
-  <div class="sec block"><p style="font-size:1.1rem">${esc(a.overview)}</p>
-    <div class="grid3"><div class="tile"><span class="kicker">Mission</span><p>${esc(a.mission)}</p></div><div class="tile"><span class="kicker">Vision</span><p>${esc(a.vision)}</p></div></div></div>
-  <div class="sec block"><span class="kicker">What we stand for</span><h2>Values</h2>
-    <div class="grid4">${a.values.map(([t, d]) => `<div class="tile"><h3>${esc(t)}</h3><p class="muted">${esc(d)}</p></div>`).join('')}</div></div>
-  <div class="sec block"><span class="kicker">What our residents learn</span><h2>Training domains</h2>
-    <div class="grid3">${a.domains.map(([t, d], i) => `<div class="tile"><span class="num">${i + 1}</span><h3>${esc(t)}</h3><p class="muted">${esc(d)}</p></div>`).join('')}</div></div>
+  <div class="sec block"><p class="lead2">${esc(a.intro)}</p></div>
+  <div class="sec block"><span class="kicker">Program goals</span><h2>What our residents achieve</h2>
+    <div class="grid2c">${a.goals.map((g, i) => `<div class="tile"><span class="num">${i + 1}</span><p>${esc(g)}</p></div>`).join('')}</div></div>
+  <div class="sec block"><span class="kicker">History</span><h2>The Saudi Board of Preventive Medicine</h2>${a.history.map((x) => `<p>${esc(x)}</p>`).join('')}</div>
+  <div class="sec block"><span class="kicker">Why it matters</span><p>${esc(a.why)}</p>${source()}</div>
   ${c.email || c.phone || c.location ? `<div class="sec block"><span class="kicker">Contact</span><div class="tile">${c.location ? `<p>${esc(c.location)}</p>` : ''}${c.email ? `<p><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></p>` : ''}${c.phone ? `<p>${esc(c.phone)}</p>` : ''}</div></div>` : ''}`;
 }
 
-async function viewProgram() {
-  const { levels, requirements } = await api('catalog');
-  app.innerHTML = pageHead('Training Program', 'Program structure R1–R4', 'Each level builds on the last. Promotion to the next level requires completing that level’s requirements, each graded out of 100.') + `
-  <div class="sec block">${['R1', 'R2', 'R3', 'R4'].map((l) => {
-    const list = requirements.filter((r) => r.level === l);
-    return `<div class="tile lvl" style="margin-bottom:14px"><h2>${esc(levels[l]?.title || l)}</h2><p class="muted">${esc(levels[l]?.desc || '')}</p>
-      <div class="tw"><table><tr><th>Requirement</th><th>Window</th></tr>${list.map((r) => `<tr><td>${esc(r.title)}</td><td><span class="win">${esc(r.window)}</span></td></tr>`).join('')}</table></div>
-      <a href="#catalog" data-l="${l}">Details, file types and grading for ${l} →</a></div>`;
-  }).join('')}</div>
-  <div class="sec block"><span class="kicker">Assessment</span><h2>How requirements are graded</h2>
+function viewSpecialty() {
+  const sp = S.specialty, b = sp.burden;
+  app.innerHTML = pageHead('The Specialty', 'What is preventive medicine?', '') + `
+  <div class="sec block"><p class="lead2">${esc(sp.definition)}</p><p>${esc(sp.scope)}</p></div>
+  <div class="sec block"><div class="grid2c">
+    <div class="tile"><span class="kicker">Where specialists work</span>${list(sp.settings)}</div>
+    <div class="tile"><span class="kicker">Areas of practice</span>${list(sp.roles)}</div></div></div>
+  <div class="sec block"><span class="kicker">Career paths</span><p>${esc(sp.careers)}</p></div>
+  <div class="sec block"><span class="kicker">Priorities in Saudi Arabia</span><h2>The health problems our residents prepare for</h2>
     <div class="grid3">
-      <div class="tile"><h3>90 points · content</h3><p class="muted">Each requirement has its own published criteria, rated Excellent 100% · Adequate 70% · Weak 40% · Absent 0%.</p></div>
-      <div class="tile"><h3>10 points · on time</h3><p class="muted">On time 10 · 1–7 days late 5 · more than 7 days 0. Uploads close 14 days after the deadline.</p></div>
-      <div class="tile"><h3>Result bands</h3><p class="muted">≥90 exceeds · 70–89 meets · 50–69 borderline · below 50 does not meet expectation.</p></div>
-    </div></div>`;
-  app.querySelectorAll('[data-l]').forEach((a) => a.addEventListener('click', () => { catalogLevel = a.dataset.l; }));
+      <div class="tile"><h3>Leading causes of premature mortality</h3><ol>${b.mortality.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>
+      <div class="tile"><h3>Leading risk factors (DALYs)</h3><ol>${b.risks.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>
+      <div class="tile"><h3>Emergency situations</h3>${list(b.emergencies)}</div></div>
+    <p class="src">Rankings: Global Burden of Disease study, as cited in the curriculum.</p>${source()}</div>`;
+}
+
+function viewProgram() {
+  const pr = S.program;
+  app.innerHTML = pageHead('Training Program', 'Four years of structured training', pr.intro) + `
+  <div class="sec block"><div class="grid4">
+    ${[['Academic training', 'Courses at the depth of international master’s programs in epidemiology and public health.'], ['Clinical training', 'Hospital rotations and longitudinal preventive clinics.'], ['Field rotations', 'Five core rotations in R3–R4 at public health sites.'], ['Research & academic half-day', 'Weekly protected research time and academic half-day (' + esc(S.academicDay) + ').']]
+      .map(([t, d]) => `<div class="tile"><h3>${t}</h3><p class="muted">${d}</p></div>`).join('')}</div></div>
+  <div class="sec block"><span class="kicker">Year by year</span><h2>Program structure</h2>
+    <div class="grid2c">${pr.years.map((y) => `<div class="tile lvl"><span class="kicker">${y.level}</span><h3>${esc(y.title)}</h3><p class="muted">${esc(y.focus)}</p>${list(y.items)}</div>`).join('')}</div></div>
+  <div class="sec block"><div class="grid3">
+    <div class="tile"><span class="kicker">Hospital rotations</span><p>${esc(pr.hospital)}</p></div>
+    <div class="tile"><span class="kicker">Preventive clinics (R3–R4)</span><p class="muted">Half a day each week in:</p>${list(pr.clinics)}</div>
+    <div class="tile"><span class="kicker">Core field rotations</span>${list(pr.field)}<p class="muted">${esc(pr.fieldNote)}</p></div></div>${source()}</div>`;
+}
+
+function viewCompetencies() {
+  const c = S.competencies;
+  app.innerHTML = pageHead('Competencies', 'The CanMEDS roles', c.intro) + `
+  <div class="sec block"><div class="grid3">${c.roles.map(([t, d], i) => `<div class="tile"><span class="num">${i + 1}</span><h3>${esc(t)}</h3><p class="muted">${esc(d)}</p></div>`).join('')}</div>${source()}</div>`;
+}
+
+function viewResearch() {
+  const r = S.research;
+  app.innerHTML = pageHead('Research', 'Two research projects', r.intro) + `
+  <div class="sec block"><div class="grid2c">${r.projects.map(([t, d]) => `<div class="tile lvl"><h3>${esc(t)}</h3><p>${esc(d)}</p></div>`).join('')}</div>
+  <p>${esc(r.support)}</p>${source()}</div>`;
+}
+
+function viewAssessment() {
+  const a = S.assessment;
+  app.innerHTML = pageHead('Assessment & Exams', 'How residents are assessed', a.intro) + `
+  <div class="sec block"><div class="grid3">${a.types.map(([t, d]) => `<div class="tile"><h3>${esc(t)}</h3><p class="muted">${esc(d)}</p></div>`).join('')}</div>
+  <div class="quote"><span class="kicker">Promotion requirements</span><p>Each level’s promotion requirements — with deadlines, file types and grading criteria — are in the Trainee Portal.</p><p><a class="btn pri" href="#catalog">View promotion requirements</a></p></div>${source()}</div>`;
+}
+
+// ---------- Trainee portal ----------
+
+function viewPortal() {
+  app.innerHTML = `<div class="box"><span class="kicker">Trainee Portal</span><h1>Promotion requirements</h1>
+    <p>Everything about your promotion requirements in one place: what is required at each level, when, in what format, and how it is graded. Register to submit your work and receive your evaluation.</p></div>
+  <div class="grid3">
+    <a class="tile" href="#catalog" style="text-decoration:none;color:inherit"><h3>Requirements R1–R4 →</h3><p class="muted">Every requirement with its window, file type, steps and grading criteria.</p></a>
+    <a class="tile" href="#guide" style="text-decoration:none;color:inherit"><h3>Trainee guide →</h3><p class="muted">How submission windows, lateness and grading work.</p></a>
+    ${ME ? `<a class="tile" href="${ME.role === 'admin' ? '#admin/users' : '#dash'}" style="text-decoration:none;color:inherit"><h3>${ME.role === 'admin' ? 'Administration' : 'My requirements'} →</h3><p class="muted">Signed in as ${esc(ME.name)}.</p></a>`
+      : '<a class="tile" href="#register" style="text-decoration:none;color:inherit"><h3>Register / sign in →</h3><p class="muted">Register with your SCFHS number; the administration activates your account.</p></a>'}
+  </div>`;
 }
 
 // ---------- Public requirements catalog ----------
@@ -457,8 +495,8 @@ async function route() {
   if (ME === null) { try { const r = await api('me'); ME = r.user; LEVELS = r.levels; } catch { ME = false; } }
   nav();
   footer();
-  const site = { '': viewHome, about: viewAbout, program: viewProgram, resources: viewResources, sites: viewResources, refs: viewResources };
-  const pub = { catalog: viewCatalog, login: viewLogin, register: viewRegister, guide: viewGuide };
+  const site = { '': viewHome, about: viewAbout, specialty: viewSpecialty, program: viewProgram, competencies: viewCompetencies, research: viewResearch, assessment: viewAssessment, resources: viewResources, sites: viewResources, refs: viewResources };
+  const pub = { portal: viewPortal, catalog: viewCatalog, login: viewLogin, register: viewRegister, guide: viewGuide };
   app.classList.toggle('wide', h in site);
   window.scrollTo(0, 0);
   try {
