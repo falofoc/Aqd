@@ -86,9 +86,20 @@ async function viewRegister() {
 
 // ---------- Trainee dashboard ----------
 
+// Multi-item requirements ("2 Seminars") have one upload slot per item.
+const RESUBMIT_DAYS = 14;
+const subsOf = (r) => r.submissions || [];
+const slotSub = (r, i) => subsOf(r).find((x) => (x.slot || 1) === i);
+const itemName = (r) => { const w = r.title.replace(/^\d+\s+/, ''); return /s$/.test(w) && w.length > 4 ? w.slice(0, -1) : w; };
+const slotLabel = (r, i) => (r.slots > 1 ? `${itemName(r)} ${i}` : 'Submission');
+const doneCount = (r) => subsOf(r).filter((x) => !x.rejected).length;
 function stateTag(r) {
-  if (r.submission?.grade) return `<span class="tag t-done">Graded ${r.submission.grade.total}/100</span>`;
-  if (r.submission) return `<span class="tag t-done">Submitted</span>`;
+  const subs = subsOf(r), n = r.slots || 1;
+  if (subs.some((x) => x.rejected)) return '<span class="tag t-closed">Rejected — submit again</span>';
+  const graded = subs.filter((x) => x.grade);
+  if (graded.length === n) return `<span class="tag t-done">Graded ${graded.map((x) => x.grade.total).join(' · ')}</span>`;
+  if (doneCount(r) === n) return '<span class="tag t-done">Submitted</span>';
+  if (doneCount(r)) return `<span class="tag t-late">${doneCount(r)} of ${n} submitted</span>`;
   return `<span class="tag t-${r.state}">${STATE[r.state]}</span>`;
 }
 const lateEnd = (r) => new Date(new Date(r.closeAt).getTime() + r.lateDays * 864e5);
@@ -96,8 +107,8 @@ const lateEnd = (r) => new Date(new Date(r.closeAt).getTime() + r.lateDays * 864
 async function viewDash() {
   const reqs = await api('requirements');
   const lv = LEVELS[ME.level] || {};
-  const done = reqs.filter((r) => r.submission).length;
-  const openNow = reqs.filter((r) => ['open', 'late'].includes(r.state) && !r.submission);
+  const done = reqs.filter((r) => doneCount(r) === (r.slots || 1)).length;
+  const openNow = reqs.filter((r) => ['open', 'late'].includes(r.state) && doneCount(r) < (r.slots || 1));
   app.innerHTML = `<div class="box"><h1>${esc(lv.title || ME.level)}</h1><p>${esc(lv.desc || '')}</p>
    <p>Submitted: <b>${done}</b> of <b>${reqs.length}</b> · Open now and not submitted: <b>${openNow.length}</b></p></div>
    ${openNow.length ? `<div class="warn"><b>Due now:</b> ${openNow.map((r) => `${esc(r.title)} (${left(r.state === 'open' ? r.closeAt : lateEnd(r))})`).join(' · ')}</div>` : ''}
@@ -105,7 +116,7 @@ async function viewDash() {
    <div class="list" id="l"></div>`;
   const draw = () => {
     const f = $('#fs').value;
-    $('#l').innerHTML = reqs.filter((r) => !f || (f === 'sub' ? r.submission : r.state === f && !r.submission))
+    $('#l').innerHTML = reqs.filter((r) => !f || (f === 'sub' ? doneCount(r) : r.state === f && !doneCount(r)))
       .map((r) => `<button class="req" data-id="${r.id}"><span class="win">${esc(r.window)}</span><span>${esc(r.title)}<br><small class="muted">${fmt(r.openAt)} → ${fmt(r.closeAt)}</small></span>${stateTag(r)}</button>`).join('') || '<p class="muted">Nothing here</p>';
     app.querySelectorAll('.req').forEach((b) => b.onclick = () => openReq(reqs.find((x) => x.id === b.dataset.id)));
   };
@@ -122,38 +133,52 @@ function rubricTable(r, grade) {
 function reqDetails(r) {
   return `<div class="row"><span class="win">${esc(r.window)}</span><span class="tag t-${r.state}">${STATE[r.state]}</span>${r.proposed ? '<span class="tag t-late">Proposed by curriculum</span>' : ''}</div>
   <h2>${esc(r.title)}</h2>
+  ${r.note ? `<div class="warn"><b>Note:</b> ${esc(r.note)}</div>` : ''}
+  ${r.slots > 1 ? `<p class="muted">Submit ${r.slots} separately — each ${esc(itemName(r))} is uploaded and graded on its own.</p>` : ''}
   <div class="grid2">
    <div class="box"><b>Submission window</b><span>Opens: ${fmt(r.openAt)}</span><span>Closes: ${fmt(r.closeAt)}</span>${r.lateDays ? `<span class="muted">Late submissions accepted until ${fmt(lateEnd(r))}, with the timeliness deduction</span>` : ''}<b>${r.state === 'upcoming' ? 'Opens in: ' + left(r.openAt).replace(' left', '') : r.state === 'open' ? left(r.closeAt) : ''}</b></div>
    <div class="box"><b>File to submit</b><span>Accepted formats: <b>${r.fileTypes.map((x) => '.' + x).join(' ')}</b></span><span>Maximum size: ${r.maxMB} MB</span><span>${esc(r.howToSubmit)}</span></div>
   </div>
   <div><h3>Instructions</h3><ol class="steps">${r.instructions.map((s) => `<li>${esc(s)}</li>`).join('')}</ol></div>
-  <div><h3>Evaluation (100 points)</h3><p class="muted">Each criterion is rated Excellent 100% · Adequate 70% · Weak 40% · Absent 0%. Result: ≥90 exceeds · 70–89 meets · 50–69 borderline · below 50 does not meet.</p>${rubricTable(r, r.submission?.grade)}</div>
+  <div><h3>Evaluation (100 points)</h3><p class="muted">Each criterion is rated Excellent 100% · Adequate 70% · Weak 40% · Absent 0%. Result: ≥90 exceeds · 70–89 meets · 50–69 borderline · below 50 does not meet.</p>${rubricTable(r, r.slots === 1 ? slotSub(r, 1)?.grade : null)}</div>
   ${r.resources.length ? `<div><h3>References and tools</h3><ul>${r.resources.map((x) => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a></li>`).join('')}</ul></div>` : ''}`;
 }
 
-function openReq(r) {
-  const s = r.submission;
-  const canUpload = ['open', 'late'].includes(r.state) && !s?.grade;
-  $('#dlgBody').innerHTML = `${reqDetails(r)}
-   <div class="card"><h3>Submission</h3>
-    ${s ? `<p>Last upload: <a href="/api/submissions/${s.id}/file">${esc(s.fileName)}</a> · ${fmt(s.submittedAt)} ${s.late ? '<span class="tag t-late">Late</span>' : ''}</p>` : '<p class="muted">Not submitted yet.</p>'}
+function slotCard(r, i) {
+  const s = slotSub(r, i);
+  const resubmit = s?.rejected && Date.now() - new Date(s.rejectedAt) < RESUBMIT_DAYS * 864e5;
+  const canUpload = (['open', 'late'].includes(r.state) || resubmit) && !s?.grade;
+  return `<div class="card" data-slot="${i}"><h3>${esc(slotLabel(r, i))}</h3>
+    ${s?.rejected ? `<div class="err"><b>Rejected:</b> ${esc(s.rejectReason)}<br>Please submit a new file${resubmit ? ` (accepted until ${fmt(new Date(new Date(s.rejectedAt).getTime() + RESUBMIT_DAYS * 864e5))})` : ''}.</div>` : ''}
+    ${s && !s.rejected ? `<p>Last upload: <a href="/api/submissions/${s.id}/file">${esc(s.fileName)}</a> · ${fmt(s.submittedAt)} ${s.late ? '<span class="tag t-late">Late</span>' : ''}</p>` : s ? '' : '<p class="muted">Not submitted yet.</p>'}
     ${s?.grade ? `<div class="box"><span class="score">${s.grade.total}/100 · ${esc(s.grade.band)}</span>${s.grade.feedback ? `<p><b>Assessor feedback:</b> ${esc(s.grade.feedback)}</p>` : ''}</div>` : ''}
-    ${canUpload ? `<div class="drop"><input type="file" id="file" accept="${r.fileTypes.map((x) => '.' + x).join(',')}"><label style="margin-top:8px">Note to the assessor (optional)<input id="note"></label>
-      <button class="pri" id="up" style="margin-top:8px">${s ? 'Replace file' : 'Upload file'}</button>${r.state === 'late' ? '<p class="err" style="margin-top:8px">Submitting now is late and will reduce the timeliness score.</p>' : ''}</div>`
+    ${canUpload ? `<div class="drop"><input type="file" class="file" accept="${r.fileTypes.map((x) => '.' + x).join(',')}"><label style="margin-top:8px">Note to the assessor (optional)<input class="note"></label>
+      <button class="pri up" style="margin-top:8px">${s && !s.rejected ? 'Replace file' : 'Upload file'}</button>${r.state === 'late' || (resubmit && r.state === 'closed') ? '<p class="err" style="margin-top:8px">Submitting now is after the deadline and will reduce the timeliness score.</p>' : ''}</div>`
       : `<p class="muted">${s?.grade ? 'Graded; the file can no longer be replaced.' : r.state === 'upcoming' ? 'Uploading opens when the window opens.' : r.state === 'closed' ? 'The submission window is closed.' : ''}</p>`}
-    <div id="e"></div></div>
+    <div class="e"></div></div>`;
+}
+
+function openReq(r) {
+  const n = r.slots || 1;
+  $('#dlgBody').innerHTML = `${reqDetails(r)}
+   ${Array.from({ length: n }, (_, k) => slotCard(r, k + 1)).join('')}
    <div class="bar"><button id="x">Close</button></div>`;
   $('#x').onclick = () => $('#dlg').close();
-  if (canUpload) $('#up').onclick = async () => {
-    const f = $('#file').files[0];
-    if (!f) return errBox('Choose a file');
-    if (f.size > r.maxMB * 1048576) return errBox(`The file is larger than ${r.maxMB} MB`);
-    $('#up').disabled = true; $('#up').textContent = 'Uploading…';
-    try {
-      await api(`requirements/${r.id}/submit`, { method: 'POST', body: f, headers: { 'X-File-Name': encodeURIComponent(f.name), 'X-Note': encodeURIComponent($('#note').value) } });
-      $('#dlg').close(); route();
-    } catch (e) { errBox(e); $('#up').disabled = false; $('#up').textContent = 'Upload file'; }
-  };
+  $('#dlgBody').querySelectorAll('[data-slot]').forEach((card) => {
+    const up = card.querySelector('.up');
+    if (!up) return;
+    const err = (m) => { card.querySelector('.e').innerHTML = `<div class="err">${esc(m.message || m)}</div>`; };
+    up.onclick = async () => {
+      const f = card.querySelector('.file').files[0];
+      if (!f) return err('Choose a file');
+      if (f.size > r.maxMB * 1048576) return err(`The file is larger than ${r.maxMB} MB`);
+      const label = up.textContent; up.disabled = true; up.textContent = 'Uploading…';
+      try {
+        await api(`requirements/${r.id}/submit`, { method: 'POST', body: f, headers: { 'X-File-Name': encodeURIComponent(f.name), 'X-Note': encodeURIComponent(card.querySelector('.note').value), 'X-Slot': card.dataset.slot } });
+        $('#dlg').close(); route();
+      } catch (e) { err(e); up.disabled = false; up.textContent = label; }
+    };
+  });
   $('#dlg').showModal();
 }
 
@@ -207,6 +232,8 @@ function editReq(r) {
     <label style="align-self:end;display:flex;gap:8px;align-items:center"><input type="checkbox" name="published" style="width:auto" ${r.published ? 'checked' : ''}> Published to trainees</label></div>
    <label>Description<textarea name="description">${esc(r.description)}</textarea></label>
    <label>How to submit<textarea name="howToSubmit">${esc(r.howToSubmit)}</textarea></label>
+   <label>Note shown to trainees (optional)<input name="note" value="${esc(r.note || '')}"></label>
+   <label>Number of items submitted and graded separately<input type="number" name="slots" min="1" max="5" value="${r.slots || 1}"></label>
    <label>Instructions (one step per line)<textarea name="instructions" rows="6">${esc(r.instructions.join('\n'))}</textarea></label>
    <label>Evaluation criteria (one per line: points | criterion — must total 90; 10 for timeliness is added automatically)<textarea name="rubric" rows="6">${esc(r.rubric.map((c) => `${c.max} | ${c.name}`).join('\n'))}</textarea></label>
    <label>References (one per line: title | link)<textarea name="resources">${esc(r.resources.map((x) => `${x.title} | ${x.url}`).join('\n'))}</textarea></label>
@@ -219,7 +246,7 @@ function editReq(r) {
     ev.preventDefault();
     const f = ev.target;
     const body = {
-      title: f.title.value, level: f.level.value, window: f.window.value, description: f.description.value, howToSubmit: f.howToSubmit.value,
+      title: f.title.value, level: f.level.value, window: f.window.value, description: f.description.value, howToSubmit: f.howToSubmit.value, note: f.note.value, slots: +f.slots.value,
       openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), lateDays: +f.lateDays.value, maxMB: +f.maxMB.value,
       published: f.published.checked, fileTypes: f.fileTypes.value.split(',').map((s) => s.trim()).filter(Boolean),
       instructions: lines(f.instructions.value),
@@ -236,14 +263,16 @@ async function viewSubs() {
   const [subs, reqs] = await Promise.all([api('admin/submissions'), api('requirements')]);
   const R = Object.fromEntries(reqs.map((r) => [r.id, r]));
   app.innerHTML = `<h1>Submissions</h1>
-  <div class="filters"><select id="fg"><option value="">All</option><option value="new">Awaiting grading</option><option value="done">Graded</option></select><select id="fl"><option value="">All levels</option>${LEVEL_OPTS()}</select></div>
+  <div class="filters"><select id="fg"><option value="">All</option><option value="new">Awaiting grading</option><option value="done">Graded</option><option value="rej">Rejected</option></select><select id="fl"><option value="">All levels</option>${LEVEL_OPTS()}</select></div>
   <div class="card tw"><table id="t" class="stack"></table></div>`;
   const draw = () => {
     const g = $('#fg').value, lv = $('#fl').value;
-    const rows = subs.filter((s) => (!g || (g === 'done') === !!s.grade) && (!lv || R[s.reqId]?.level === lv)).sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+    const st = (s) => (s.rejected ? 'rej' : s.grade ? 'done' : 'new');
+    const rows = subs.filter((s) => (!g || st(s) === g) && (!lv || R[s.reqId]?.level === lv)).sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
     $('#t').innerHTML = `<tr class="hd"><th>Trainee</th><th>Requirement</th><th>Submission</th><th class="n">Score</th><th></th></tr>` + (rows.map((s) => `<tr><td class="ttl">${esc(s.user.name)} <small class="muted">${s.user.level}</small></td>
-     <td data-label="Requirement">${esc(R[s.reqId]?.title)}</td><td data-label="Submission"><a href="/api/submissions/${s.id}/file">${esc(s.fileName)}</a><br><small>${fmt(s.submittedAt)}</small> ${s.late ? '<span class="tag t-late">Late</span>' : ''}</td>
-     <td class="n" data-label="Score">${s.grade ? `${s.grade.total}<br><small>${esc(s.grade.band)}</small>` : '—'}</td><td><button data-id="${s.id}">${s.grade ? 'Edit' : 'Grade'}</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing here</td></tr>');
+     <td data-label="Requirement">${esc(R[s.reqId]?.title)}${R[s.reqId]?.slots > 1 ? ` <small class="muted">· ${esc(slotLabel(R[s.reqId], s.slot || 1))}</small>` : ''}</td>
+     <td data-label="Submission">${s.rejected ? `<span class="tag t-closed">Rejected</span><br><small class="muted">${esc(s.rejectReason)}</small>` : `<a href="/api/submissions/${s.id}/file">${esc(s.fileName)}</a><br><small>${fmt(s.submittedAt)}</small> ${s.late ? '<span class="tag t-late">Late</span>' : ''}`}</td>
+     <td class="n" data-label="Score">${s.grade ? `${s.grade.total}<br><small>${esc(s.grade.band)}</small>` : '—'}</td><td>${s.rejected ? '<small class="muted">Waiting for a new file</small>' : `<button data-id="${s.id}">${s.grade ? 'Edit' : 'Grade'}</button>`}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing here</td></tr>');
     $('#t').querySelectorAll('button').forEach((b) => b.onclick = () => grade(subs.find((s) => s.id === b.dataset.id), R));
   };
   $('#fg').onchange = $('#fl').onchange = draw; draw();
@@ -253,14 +282,14 @@ function grade(s, R) {
   const r = R[s.reqId];
   const lateDays = (new Date(s.submittedAt) - new Date(r.closeAt)) / 864e5;
   const t = lateDays <= 0 ? 10 : lateDays <= 7 ? 5 : 0;
-  $('#dlgBody').innerHTML = `<h2>${esc(r.title)}</h2><p>${esc(s.user.name)} · <a href="/api/submissions/${s.id}/file">${esc(s.fileName)}</a> · ${fmt(s.submittedAt)}</p>
+  $('#dlgBody').innerHTML = `<h2>${esc(r.title)}${r.slots > 1 ? ` · ${esc(slotLabel(r, s.slot || 1))}` : ''}</h2><p>${esc(s.user.name)} · <a href="/api/submissions/${s.id}/file">${esc(s.fileName)}</a> · ${fmt(s.submittedAt)}</p>
    ${s.note ? `<div class="box">Trainee's note: ${esc(s.note)}</div>` : ''}
    <div class="tw"><table class="stack"><tr class="hd"><th>Criterion</th><th class="n">Max</th><th>Rating</th><th class="n">Score</th></tr>
    ${r.rubric.map((c, i) => `<tr><td class="ttl">${esc(c.name)}</td><td class="n" data-label="Max">${c.max}</td><td data-label="Rating"><select data-i="${i}">${RATE.map(([k, v]) => `<option value="${k}" ${s.grade?.items[i]?.rating === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td><td class="n" data-label="Score" data-o></td></tr>`).join('')}
    <tr><td class="ttl">Submitted on time (computed automatically)</td><td class="n" data-label="Max">10</td><td data-label="Rating">${t === 10 ? 'On time' : t === 5 ? '1–7 days late' : 'More than 7 days late'}</td><td class="n" data-label="Score">${t}</td></tr>
    <tr class="tot"><th colspan="3">Total</th><th class="n score" id="tot"></th></tr></table></div>
    <label>Feedback to the trainee<textarea id="fb">${esc(s.grade?.feedback || '')}</textarea></label><div id="e"></div>
-   <div class="row bar"><button class="pri" id="sv">Save grade</button><button id="x">Cancel</button>${s.grade ? '<button class="bad" id="rm">Remove grade (allows re-upload)</button>' : ''}</div>`;
+   <div class="row bar"><button class="pri" id="sv">Save grade</button><button id="x">Cancel</button>${s.grade ? '<button class="bad" id="rm">Remove grade (allows re-upload)</button>' : ''}<button class="bad" id="rej">Reject &amp; delete</button></div>`;
   const pct = { excellent: 1, adequate: 0.7, weak: 0.4, absent: 0 };
   const calc = () => {
     let sum = t;
@@ -270,6 +299,12 @@ function grade(s, R) {
   $('#dlgBody').onchange = calc; calc();
   $('#x').onclick = () => $('#dlg').close();
   if (s.grade) $('#rm').onclick = async () => { await api('admin/grade/' + s.id, { method: 'DELETE' }); $('#dlg').close(); route(); };
+  $('#rej').onclick = async () => {
+    const reason = prompt('Reason for rejecting (the trainee will see it). The file will be deleted and the trainee can submit a new one.');
+    if (!reason || !reason.trim()) return;
+    try { await api('admin/reject/' + s.id, { body: { reason } }); $('#dlg').close(); route(); }
+    catch (e) { errBox(e); }
+  };
   $('#sv').onclick = async () => {
     const ratings = [...$('#dlgBody').querySelectorAll('select[data-i]')].map((x) => x.value);
     try { await api('admin/grade/' + s.id, { body: { ratings, feedback: $('#fb').value } }); $('#dlg').close(); route(); }
