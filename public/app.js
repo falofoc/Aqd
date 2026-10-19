@@ -288,7 +288,7 @@ const source = () => `<p class="src">Source: <a href="${S.sourceUrl}" target="_b
 function footer() {
   const c = S.contact || {};
   $('#foot').innerHTML = `<div class="sec">
-    <div class="fb"><img src="brand/shield.png" alt="" width="54" height="63"><div><h4>${esc(S.board)}</h4>${esc(S.hospital)}</div></div>
+    <div class="fb"><img src="brand/shield-white.png" alt="" width="54" height="63"><div><h4>${esc(S.board)}</h4>${esc(S.hospital)}</div></div>
     <div><h4>The Board</h4><ul><li><a href="#about">About</a></li><li><a href="#specialty">The Specialty</a></li><li><a href="#program">Training Program</a></li><li><a href="#assessment">Assessment &amp; Exams</a></li></ul></div>
     <div><h4>Trainees</h4><ul><li><a href="#portal">Trainee Portal</a></li><li><a href="#catalog">Promotion requirements</a></li><li><a href="#resources">Resources</a></li>
       ${c.email ? `<li><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></li>` : ''}${c.phone ? `<li>${esc(c.phone)}</li>` : ''}</ul></div>
@@ -306,7 +306,6 @@ function viewHome() {
     <div style="display:grid;gap:14px"><span class="kicker">${esc(S.hero.kicker)}</span>
       <h1>${esc(S.hero.title)}</h1><p>${esc(S.hero.text)}</p>
       <div class="ctas"><a class="pri" href="#program">Explore the program</a><a href="${portalHref}">Trainee Portal</a></div>${ME || seenStart() ? "" : `<a href="#start" style="color:#ffd88a;font-weight:700">New trainee? Start here →</a>`}</div>
-    <div class="logo-card"><img src="brand/logo.png" alt="${esc(S.board)} — ${esc(S.hospital)}" width="1100" height="323"></div>
   </div></section>
   <div class="sec"><div class="stats">${S.facts.map(([n, t]) => `<div class="stat"><b>${esc(n)}</b><span>${esc(t)}</span></div>`).join('')}</div></div>
   <div class="sec block"><div class="quote"><span class="kicker">${esc(S.welcome.title)}</span>${S.welcome.paragraphs.map((x) => `<p>${esc(x)}</p>`).join('')}<span class="sig">— ${esc(S.welcome.signature)}</span></div></div>
@@ -400,7 +399,7 @@ async function viewStart() {
   const next = requirements.filter((r) => r.closeAt && new Date(r.closeAt) > Date.now() && r.window !== 'OCT–JUL').sort((a, b) => a.closeAt.localeCompare(b.closeAt))[0];
   const days = next ? Math.ceil((new Date(next.closeAt) - Date.now()) / 864e5) : null;
   const slides = [
-    { cls: 's-hook', html: `<img class="s-logo" src="brand/shield.png" alt=""><p class="s-k">${esc(S.board)}</p><h1 class="s-big">Your promotion<br><em>lives here.</em></h1><p class="s-sub">60 seconds. Then you’re in.</p>` },
+    { cls: 's-hook', html: `<p class="s-k">${esc(S.board)}</p><h1 class="s-big">Your promotion<br><em>lives here.</em></h1><p class="s-sub">60 seconds. Then you’re in.</p>` },
     { cls: 's-dark', html: `<p class="s-k">The requirements</p><h1 class="s-num" data-count="${n}">0</h1><p class="s-sub">promotion requirements across four years.</p><div class="s-bars">${['R1', 'R2', 'R3', 'R4'].map((l, i) => `<div style="--h:${lv(l) * 5}px;--d:${i * 0.12}s"><b>${lv(l)}</b><span>${l}</span></div>`).join('')}</div>` },
     { cls: 's-green', html: `<p class="s-k">Why they matter</p><h1 class="s-big">No requirements,<br><em>no promotion.</em></h1><p class="s-sub">They are how the program measures your progress — CAPs, CATs, seminars, CBDs, Mini-CEX, courses, projects and research.</p>` },
     { cls: 's-light', html: `<p class="s-k">Deadlines are real</p><h1 class="s-big">Every requirement<br>has a <em>window.</em></h1><div class="s-timeline"><span class="o">Opens</span><span class="c">Closes</span><span class="l">+14 days late</span><span class="x">Locked</span></div><p class="s-sub">${next ? `Next deadline: <b>${esc(next.title)}</b> (${next.level}) — <b>${days} day${days === 1 ? '' : 's'}</b> left.` : 'Upload inside the window to keep your 10 timeliness points.'}</p>` },
