@@ -109,7 +109,7 @@ async function viewDash() {
   const lv = LEVELS[ME.level] || {};
   const done = reqs.filter((r) => doneCount(r) === (r.slots || 1)).length;
   const openNow = reqs.filter((r) => ['open', 'late'].includes(r.state) && doneCount(r) < (r.slots || 1));
-  app.innerHTML = `<div class="box"><h1>${esc(lv.title || ME.level)}</h1><p>${esc(lv.desc || '')}</p>
+  app.innerHTML = `<div class="box"><h1>${esc(lv.title || ME.level)}</h1>${ME.vip ? '<span class="tag t-done" style="justify-self:start">VIP · you can upload at any time</span>' : ''}<p>${esc(lv.desc || '')}</p>
    <p>Submitted: <b>${done}</b> of <b>${reqs.length}</b> · Open now and not submitted: <b>${openNow.length}</b></p></div>
    ${openNow.length ? `<div class="warn"><b>Due now:</b> ${openNow.map((r) => `${esc(r.title)} (${left(r.state === 'open' ? r.closeAt : lateEnd(r))})`).join(' · ')}</div>` : ''}
    <div class="filters"><select id="fs"><option value="">All statuses</option>${Object.entries(STATE).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}<option value="sub">Submitted</option></select></div>
@@ -147,7 +147,7 @@ function reqDetails(r) {
 function slotCard(r, i) {
   const s = slotSub(r, i);
   const resubmit = s?.rejected && Date.now() - new Date(s.rejectedAt) < RESUBMIT_DAYS * 864e5;
-  const canUpload = (['open', 'late'].includes(r.state) || resubmit) && !s?.grade;
+  const canUpload = (['open', 'late'].includes(r.state) || resubmit || ME.vip) && !s?.grade;
   return `<div class="card" data-slot="${i}"><h3>${esc(slotLabel(r, i))}</h3>
     ${s?.rejected ? `<div class="err"><b>Rejected:</b> ${esc(s.rejectReason)}<br>Please submit a new file${resubmit ? ` (accepted until ${fmt(new Date(new Date(s.rejectedAt).getTime() + RESUBMIT_DAYS * 864e5))})` : ''}.</div>` : ''}
     ${s && !s.rejected ? `<p>Last upload: <a href="/api/submissions/${s.id}/file">${esc(s.fileName)}</a> · ${fmt(s.submittedAt)} ${s.late ? '<span class="tag t-late">Late</span>' : ''}</p>` : s ? '' : '<p class="muted">Not submitted yet.</p>'}
@@ -189,17 +189,19 @@ async function viewUsers() {
   const st = { pending: ['Awaiting activation', 't-late'], active: ['Active', 't-open'], disabled: ['Disabled', 't-closed'] };
   app.innerHTML = `<h1>Trainees</h1><div class="box">New registrations are listed first. Check the SCFHS number, then activate the account and set the level.</div>
   <div class="card"><h3>Registration open for</h3><div class="row" id="reg">${['R1', 'R2', 'R3', 'R4'].map((l) => `<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" value="${l}" style="width:auto" ${closedLevels.includes(l) ? '' : 'checked'}> ${l}</label>`).join('')}</div><p class="muted">Unticked levels cannot register. Existing accounts are not affected.</p></div>
-  <div class="tw card"><table class="stack"><tr class="hd"><th>Name</th><th>Email / mobile</th><th>SCFHS no.</th><th>Level</th><th>Status</th><th></th></tr>
+  <div class="tw card"><table class="stack"><tr class="hd"><th>Name</th><th>Email / mobile</th><th>SCFHS no.</th><th>Level</th><th>Status</th><th>VIP</th><th></th></tr>
   ${users.sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0)).map((u) => `<tr data-id="${u.id}"><td class="ttl">${esc(u.name)}</td><td data-label="Email / mobile">${esc(u.email)}<br>${esc(u.phone)}</td><td data-label="SCFHS no.">${esc(u.scfhs)}</td>
    <td data-label="Level"><select data-lv>${LEVEL_OPTS(u.level)}</select></td>
    <td data-label="Status"><span class="tag ${st[u.status][1]}">${st[u.status][0]}</span></td>
-   <td class="row">${u.status !== 'active' ? '<button class="pri" data-s="active">Activate</button>' : '<button class="bad" data-s="disabled">Disable</button>'}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No trainees yet</td></tr>'}
+   <td data-label="VIP"><label style="display:flex;gap:6px;align-items:center;font-weight:600" title="Can upload at any time"><input type="checkbox" data-vip style="width:auto" ${u.vip ? 'checked' : ''}> VIP</label></td>
+   <td class="row">${u.status !== 'active' ? '<button class="pri" data-s="active">Activate</button>' : '<button class="bad" data-s="disabled">Disable</button>'}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No trainees yet</td></tr>'}
   </table></div>`;
   $('#reg').onchange = () => api('admin/registration', { body: { closedLevels: [...$('#reg').querySelectorAll('input:not(:checked)')].map((x) => x.value) } }).catch((e) => alert(e.message));
   app.querySelectorAll('tr[data-id]').forEach((tr) => {
     const save = (b) => api('admin/users/' + tr.dataset.id, { body: b }).then(route).catch((e) => alert(e.message));
     tr.querySelectorAll('[data-s]').forEach((b) => b.onclick = () => save({ status: b.dataset.s, level: $('[data-lv]', tr).value }));
     $('[data-lv]', tr).onchange = (e) => save({ level: e.target.value });
+    $('[data-vip]', tr).onchange = (e) => save({ vip: e.target.checked });
   });
 }
 

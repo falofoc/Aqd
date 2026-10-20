@@ -190,3 +190,32 @@ test('multi-item requirements, session note, and reject & resubmit', async () =>
     assert.ok(again.history.some((h) => h.reason === 'Wrong file'));
   } finally { srv.close(); }
 });
+
+test('VIP trainees can upload outside the submission window', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, { body, cookie, headers = {} } = {}) => {
+    const raw = Buffer.isBuffer(body);
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', body: raw ? body : body && JSON.stringify(body),
+      headers: { 'X-Requested-With': 'portal', ...(cookie ? { cookie } : {}), ...(raw ? {} : { 'Content-Type': 'application/json' }), ...headers } });
+    return { status: r.status, data: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  try {
+    await call('register', { body: { name: 'T', email: 't@x.sa', password: '12345678', level: 'R1', scfhs: '1' } });
+    const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
+    const uid = (await call('admin/users', { cookie: admin })).data[0].id;
+    await call('admin/users/' + uid, { cookie: admin, body: { status: 'active' } });
+    const tr = (await call('login', { body: { email: 't@x.sa', password: '12345678' } })).cookie;
+    // a requirement whose window has not opened yet
+    await call('admin/requirements/r1-019', { cookie: admin, body: { openAt: '2099-01-01T00:00:00Z', closeAt: '2099-02-01T00:00:00Z' } });
+    const up = () => call('requirements/r1-019/submit', { cookie: tr, body: Buffer.from('%PDF'), headers: { 'X-File-Name': 'logbook.pdf' } });
+    assert.equal((await up()).status, 403);
+    assert.equal((await call('admin/users/' + uid, { cookie: admin, body: { vip: true } })).data.vip, true);
+    assert.equal((await call('me', { cookie: tr })).data.user.vip, true);
+    assert.equal((await up()).status, 200);
+    await call('admin/users/' + uid, { cookie: admin, body: { vip: false } });
+    assert.equal((await up()).status, 403);
+  } finally { srv.close(); }
+});
