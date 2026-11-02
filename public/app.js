@@ -691,6 +691,21 @@ function runExam(eid, st) {
       <div class="ex-grid" id="grid"></div><p class="muted ex-save" id="sv"></p></main></div>`;
   void mark;
   const send = (path, body) => api('exam/attempt/' + path, { body: { token: st.token, ...body } });
+  // Answers are saved one after another, in the order chosen; a failed save is retried, and Submit waits for all of them.
+  let seq = 0, queue = Promise.resolve(), pending = 0;
+  const saveAnswer = (itemId, optionId) => {
+    const n = ++seq; pending++;
+    $('#sv').textContent = 'Saving…';
+    queue = queue.then(async () => {
+      for (let tryNo = 0; ; tryNo++) {
+        try { await send('answer', { itemId, optionId, seq: n }); break; }
+        catch (e) { if (/time is up|submitted/i.test(e.message) || tryNo >= 5) { $('#sv').textContent = 'Not saved: ' + e.message; break; } $('#sv').textContent = 'Connection problem — retrying…'; await new Promise((r) => setTimeout(r, 1500 * (tryNo + 1))); }
+      }
+      pending--;
+      if (!pending) { const el = $('#sv'); if (el) el.textContent = 'All answers saved ✓'; }
+    });
+    return queue;
+  };
   const draw = () => {
     const q = qs[cur];
     const ctx = q.group && (cur === 0 || qs[cur - 1].group !== q.group || true);
@@ -703,9 +718,7 @@ function runExam(eid, st) {
       const oid = ans[q.id] === b.dataset.o ? null : b.dataset.o;
       if (oid) ans[q.id] = oid; else delete ans[q.id];
       draw();
-      $('#sv').textContent = 'Saving…';
-      try { await send('answer', { itemId: q.id, optionId: oid }); $('#sv').textContent = 'Saved ✓'; }
-      catch (e) { $('#sv').textContent = 'Not saved — check your connection (' + e.message + ')'; }
+      saveAnswer(q.id, oid);
     });
     $('#prev').disabled = cur === 0;
     $('#next').textContent = cur === qs.length - 1 ? 'Review & submit' : 'Next →';
@@ -720,8 +733,8 @@ function runExam(eid, st) {
   $('#flag').onclick = () => { const id = qs[cur].id; flagged.has(id) ? flagged.delete(id) : flagged.add(id); draw(); };
   const submit = async (auto) => {
     if (done) return; done = true; cleanup();
-    app.innerHTML = '<div class="exam-gate"><div class="eg-card"><h1>Submitting…</h1></div></div>';
-    try { const r = await send('submit', {}); showResult({ ...r, autoSubmitted: r.autoSubmitted || auto }); }
+    app.innerHTML = '<div class="exam-gate"><div class="eg-card"><h1>Submitting…</h1><p class="muted">Making sure all your answers are saved.</p></div></div>';
+    try { await queue; const r = await send('submit', {}); showResult({ ...r, autoSubmitted: r.autoSubmitted || auto }); }
     catch (e) { app.innerHTML = `<div class="exam-gate"><div class="eg-card"><div class="err">${esc(e.message)}</div><p>Your saved answers are kept. Enter your details again to see your result.</p><a class="btn pri" href="#exam/${eid}">Continue</a></div></div>`; }
   };
   const confirmSubmit = () => {
