@@ -219,3 +219,53 @@ test('VIP trainees can upload outside the submission window', async () => {
     assert.equal((await up()).status, 403);
   } finally { srv.close(); }
 });
+
+test('T1 exam: hidden answers, password, one attempt, grading, excluding a question', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, { body, cookie, method } = {}) => {
+    const r = await fetch(base + p, { method: method || (body ? 'POST' : 'GET'), body: body && JSON.stringify(body), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) } });
+    return { status: r.status, data: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  try {
+    const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
+    const info = (await call('exam/t1')).data;
+    assert.equal(info.count, 28);
+    assert.equal(info.durationMin, 60);
+    const me = { name: 'Sara Ali Alqahtani', scfhs: '19RM123', password: 'AFHSR26' };
+    assert.equal((await call('exam/t1/start', { body: me })).status, 403, 'not open yet');
+    // open it now
+    await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(Date.now() - 6e4).toISOString(), closeAt: new Date(Date.now() + 36e5).toISOString() } });
+    assert.equal((await call('exam/t1/start', { body: { ...me, password: 'x' } })).status, 403);
+    assert.equal((await call('exam/t1/start', { body: { ...me, name: 'Sara' } })).status, 400);
+    const st = (await call('exam/t1/start', { body: me })).data;
+    assert.equal(st.questions.length, 28);
+    const raw = JSON.stringify(st);
+    assert.ok(!raw.includes('"answer"') && !raw.includes('keyNote') && !raw.includes('AFHSR26'), 'no answers or password sent');
+    // grouped questions stay together
+    const pos = st.questions.map((q, i) => (q.group === 'lab' ? i : -1)).filter((i) => i >= 0);
+    assert.equal(pos[3] - pos[0], 3);
+    // answer every question correctly using the server's key
+    const { exam } = (await call('admin/exams/t1', { cookie: admin })).data;
+    for (const it of exam.items) await call('exam/attempt/answer', { body: { token: st.token, itemId: it.id, optionId: it.answer } });
+    await call('exam/attempt/event', { body: { token: st.token, type: 'hidden' } });
+    const res = (await call('exam/attempt/submit', { body: { token: st.token } })).data;
+    assert.deepEqual([res.score, res.total, res.percent], [28, 28, 100]);
+    assert.equal(res.answers, undefined);
+    // one attempt per SCFHS number: starting again just shows the result
+    const again = (await call('exam/t1/start', { body: me })).data;
+    assert.equal(again.submitted, true);
+    assert.equal(again.score, 28);
+    // excluding a question re-grades everyone
+    await call('admin/exams/t1/items/q18', { cookie: admin, body: { excluded: true } });
+    const adm = (await call('admin/exams/t1', { cookie: admin })).data;
+    assert.equal(adm.attempts[0].total, 27);
+    assert.equal(adm.attempts[0].focusLost, 1);
+    assert.equal((await call('exam/t1')).data.count, 27);
+    // deleting the attempt allows a new one
+    await call('admin/exams/t1/attempts/' + adm.attempts[0].id, { cookie: admin, method: 'DELETE' });
+    assert.ok((await call('exam/t1/start', { body: me })).data.token);
+  } finally { srv.close(); }
+});
