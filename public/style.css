@@ -307,4 +307,19 @@ button.big{padding:14px;font-size:1.1rem}
 .ex-off{opacity:.55}
 .ex-akey li.k{font-weight:700;color:var(--good)}
 .ex-akey li.k::after{content:" ✓ key"}
-@media print{body.exam-on *{display:none!important}}
+@media print{body.exam-on .exam,body.exam-on .exam-gate{display:none!important}}
+
+/* Exam review page */
+.rv{max-width:860px;margin:0 auto;padding:20px 16px 60px;display:grid;gap:14px;background:var(--bg)}
+.rv-head{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.rv-head>div{flex:1;min-width:240px}
+.rv-q{background:var(--sf);border:1px solid var(--ln);border-radius:12px;padding:14px 16px;break-inside:avoid}
+.rv-n{font-size:13px;font-weight:700;color:var(--ac);margin:0 0 4px}
+.rv-t{font-weight:600;margin:0 0 8px}
+.rv-opts{list-style:none;padding:0;margin:0;display:grid;gap:6px}
+.rv-opts li{display:flex;gap:10px;align-items:baseline;padding:6px 8px;border-radius:8px}
+.rv-opts li span{font-weight:700;color:var(--mu)}
+.rv-opts li.k{background:var(--acs);color:var(--good)}
+.rv-note{background:var(--was);color:var(--wa);border-radius:8px;padding:8px 10px;margin:10px 0 0;font-size:15px}
+.ex-imgs figure{margin:0}.ex-imgs figcaption{text-align:center;font-weight:700;font-size:14px}
+@media print{.rv-print{display:none!important}.rv{padding:0}.rv-q{border-color:#ccc}}

@@ -800,6 +800,29 @@ function showResult(r) {
     <a class="btn" href="#">Back to the site</a></div></div>`;
 }
 
+// Read-only review page for an outside reviewer (secret link, no sign-in).
+async function viewExamReview(eid, token) {
+  document.body.classList.add('exam-on');
+  const e = await api(`exam/${eid}/review/${encodeURIComponent(token)}`);
+  const L = 'ABCDEFGH';
+  let n = 0, lastGroup = null;
+  app.innerHTML = `<div class="rv">
+    <header class="rv-head"><img src="brand/shield.png" alt="" width="40" height="47"><div><span class="kicker">${esc(S.board)} · Exam review</span><h1>${esc(e.title)}</h1>
+      <p class="muted">${esc(e.course || '')} · ${e.items.length} questions · ${e.durationMin} minutes · correct answer shown in green. Confidential — please do not share.</p></div>
+      <button onclick="window.print()" class="rv-print">Print / save as PDF</button></header>
+    ${e.items.map((it) => {
+      const g = it.group && it.group !== lastGroup ? e.groups[it.group] : null; lastGroup = it.group || null; n++;
+      return `${g ? `<div class="ex-stem">${esc(g.stem)}${g.images ? `<div class="ex-imgs">${g.images.map((src, i) => `<figure><img src="${src}" alt=""><figcaption>Curve ${L[i]}</figcaption></figure>`).join('')}</div>` : ''}</div>` : ''}
+      <section class="rv-q ${it.excluded ? 'ex-off' : ''}"><p class="rv-n">Question ${n}${it.excluded ? ' · <b>removed from scoring</b>' : ''}</p>
+        <p class="rv-t">${esc(it.text)}</p>
+        ${it.table ? `<div class="tw"><table class="ex-table"><tr>${it.table.head.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${it.table.rows.map((r) => `<tr>${r.map((c, i) => i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`).join('')}</tr>`).join('')}</table></div>` : ''}
+        <ol class="rv-opts">${it.options.map((o, i) => `<li class="${o.id === it.answer ? 'k' : ''}"><span>${L[i]}</span>${esc(o.text)}${o.id === it.answer ? ' <b>✓ correct</b>' : ''}</li>`).join('')}</ol>
+        ${it.keyNote || it.keyUnverified ? `<p class="rv-note">⚠ ${it.keyUnverified ? 'No answer was marked in the source file; this key was set from the figures — please confirm. ' : ''}${esc(it.keyNote || '')}</p>` : ''}
+      </section>`;
+    }).join('')}
+  </div>`;
+}
+
 // ---------- Admin: exams ----------
 
 async function viewExamsAdmin() {
@@ -817,6 +840,9 @@ async function viewExamAdmin(eid) {
   const url = `${location.origin}/#exam/${e.id}`;
   app.innerHTML = `<p><a href="#admin/exams">← Exams</a></p><h1>${esc(e.title)}</h1>
   <div class="card"><h3>Link for trainees</h3><div class="row"><code style="word-break:break-all">${esc(url)}</code><button id="cp">Copy</button></div></div>
+  <div class="card"><h3>Reviewer link</h3><p class="muted">A secret, read-only link showing every question with its options and the correct answer, for an outside reviewer — no sign-in needed. Revoke it when the review is done.</p>
+    ${e.reviewToken ? `<div class="row"><code style="word-break:break-all">${esc(`${location.origin}/#review/${e.id}/${e.reviewToken}`)}</code><button id="rvc">Copy</button><a class="btn" target="_blank" rel="noopener" href="#review/${e.id}/${e.reviewToken}">Open</a><button class="bad" id="rvx">Revoke</button></div>`
+      : '<button class="pri" id="rvn">Create reviewer link</button>'}</div>
   <div class="grid4">
     <div class="tile"><b style="font-size:1.6rem">${sub.length}</b><span class="muted">submitted · ${d.attempts.length - sub.length} in progress</span></div>
     <div class="tile"><b style="font-size:1.6rem">${avg ?? '—'}${avg !== null ? '%' : ''}</b><span class="muted">average · ${sub.length ? Math.max(...sub.map((a) => a.percent)) + '% high · ' + Math.min(...sub.map((a) => a.percent)) + '% low' : ''}</span></div>
@@ -845,6 +871,9 @@ async function viewExamAdmin(eid) {
       <div class="row"><label style="display:flex;gap:6px;align-items:center">Key <select data-key="${it.id}" style="width:auto">${it.options.map((o, i) => `<option value="${o.id}" ${o.id === it.answer ? 'selected' : ''}>${L[i]}</option>`).join('')}</select></label>
         <button class="${it.excluded ? '' : 'bad'}" data-ex="${it.id}" data-v="${!it.excluded}">${it.excluded ? 'Restore question' : 'Delete question from scoring'}</button></div></div>`; }).join('')}</div></div>`;
   $('#cp').onclick = () => navigator.clipboard?.writeText(url).then(() => { $('#cp').textContent = 'Copied ✓'; });
+  if ($('#rvn')) $('#rvn').onclick = async () => { await api(`admin/exams/${eid}/review-link`, { body: {} }); route(); };
+  if ($('#rvx')) $('#rvx').onclick = async () => { if (!confirm('Revoke the reviewer link? It will stop working immediately.')) return; await api(`admin/exams/${eid}/review-link`, { body: { revoke: true } }); route(); };
+  if ($('#rvc')) $('#rvc').onclick = () => navigator.clipboard?.writeText(`${location.origin}/#review/${e.id}/${e.reviewToken}`).then(() => { $('#rvc').textContent = 'Copied ✓'; });
   $('#es').onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target;
     try { await api('admin/exams/' + eid, { body: { openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), durationMin: +f.durationMin.value, password: f.password.value, passMark: f.passMark.value } }); route(); }
@@ -888,6 +917,7 @@ async function route() {
     if (site[h]) return await site[h]();
     if (pub[h]) return await pub[h]();
     if (h.startsWith('exam/')) return await viewExam(h.slice(5));
+    if (h.startsWith('review/')) { const [, rid, tok] = h.split('/'); return await viewExamReview(rid, tok || ''); }
     if (!ME) return viewLogin();
     if (ME.role === 'admin' && h.startsWith('admin/exams/')) return await viewExamAdmin(h.slice(12));
     if (ME.role === 'admin') return await ({ 'admin/reqs': viewReqsAdmin, 'admin/subs': viewSubs, 'admin/exams': viewExamsAdmin }[h] || viewUsers)();

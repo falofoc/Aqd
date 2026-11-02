@@ -293,3 +293,27 @@ test('admin can preview a closed exam without it counting', async () => {
     assert.equal(adm.analysis.n, 0);
   } finally { srv.close(); }
 });
+
+test('exam reviewer link: secret, read-only, revocable', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, { body, cookie } = {}) => {
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', body: body && JSON.stringify(body), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) } });
+    return { status: r.status, data: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  try {
+    assert.equal((await call('exam/t1/review/anything')).status, 404);
+    const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
+    const { token } = (await call('admin/exams/t1/review-link', { cookie: admin, body: {} })).data;
+    const rv = await call('exam/t1/review/' + token);
+    assert.equal(rv.status, 200);
+    assert.equal(rv.data.items.length, 28);
+    assert.ok(rv.data.items.every((i) => i.answer));
+    assert.ok(!JSON.stringify(rv.data).includes('AFHSR26'), 'password not exposed');
+    assert.ok(!JSON.stringify((await call('exam/t1')).data).includes(token), 'token not in public info');
+    await call('admin/exams/t1/review-link', { cookie: admin, body: { revoke: true } });
+    assert.equal((await call('exam/t1/review/' + token)).status, 404);
+  } finally { srv.close(); }
+});
