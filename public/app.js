@@ -34,8 +34,8 @@ function nav() {
   const h = (location.hash || '#').slice(1);
   const inPortal = PORTAL_ROUTES.includes(h) || h.startsWith('admin/');
   const site = [['', 'Home'], ['about', 'About'], ['specialty', 'The Specialty'], ['program', 'Training Program'], ['competencies', 'Competencies'], ['research', 'Research'], ['assessment', 'Assessment & Exams'], ['resources', 'Resources']];
-  const portal = [['portal', 'Overview'], ['catalog', 'Requirements'], ['guide', 'Guide'],
-    ...(!ME ? [] : ME.role === 'admin' ? [['admin/users', 'Trainees'], ['admin/reqs', 'Manage requirements'], ['admin/subs', 'Submissions']] : [['dash', 'My requirements']])];
+  const portal = [['portal', 'Overview'], ['catalog', 'Requirements'], ['guide', 'Guide'], ['exam', 'Exams'],
+    ...(!ME ? [] : ME.role === 'admin' ? [['admin/users', 'Trainees'], ['admin/reqs', 'Manage requirements'], ['admin/subs', 'Submissions'], ['admin/exams', 'Exam results']] : [['dash', 'My requirements']])];
   $('#nav').innerHTML = site.map(([k, t]) => `<a href="#${k}" class="${k === h ? 'on' : ''}">${t}</a>`).join('') +
     `<a href="#portal" class="portal-link ${inPortal ? 'on' : ''}">Trainee Portal</a>`;
   $('#subnav').hidden = !inPortal;
@@ -318,7 +318,7 @@ function grade(s, R) {
 // ---------- Board website ----------
 
 const S = window.SITE;
-const PORTAL_ROUTES = ['portal', 'catalog', 'guide', 'login', 'register', 'dash', 'admin/users', 'admin/reqs', 'admin/subs'];
+const PORTAL_ROUTES = ['portal', 'catalog', 'guide', 'exam', 'login', 'register', 'dash', 'admin/users', 'admin/reqs', 'admin/subs', 'admin/exams'];
 const list = (items) => `<ul class="ticks">${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
 const source = () => `<p class="src">Source: <a href="${S.sourceUrl}" target="_blank" rel="noopener">${esc(S.source)}</a></p>`;
 
@@ -614,6 +614,248 @@ function viewResources() {
     <div class="grid3">${Object.entries(REFS).map(([g, l]) => `<div class="tile"><h3>${g}</h3><ul>${l.map(([t, u]) => `<li><a href="${u}" target="_blank" rel="noopener">${esc(t)}</a></li>`).join('')}</ul></div>`).join('')}</div></div>`;
 }
 
+// ---------- Exams ----------
+
+let examCleanup = null;
+const pad = (n) => String(n).padStart(2, '0');
+const examStore = (eid, v) => { try { if (v === undefined) return JSON.parse(localStorage.getItem('exam:' + eid) || 'null'); if (v === null) localStorage.removeItem('exam:' + eid); else localStorage.setItem('exam:' + eid, JSON.stringify(v)); } catch { return null; } };
+
+async function viewExamList() {
+  const list = await api('exam/list');
+  app.innerHTML = `<div class="box"><span class="kicker">Trainee Portal</span><h1>Exams</h1><p>No account needed: you sit the exam with your full name, SCFHS number and the exam password given by the program.</p></div>
+  <div class="list">${list.map((e) => `<a class="req" href="#exam/${e.id}" style="text-decoration:none;color:inherit"><span class="win">${e.level}</span><span><b>${esc(e.title)}</b><br><small class="muted">${fmt(e.openAt)} → ${fmt(e.closeAt)} · ${e.durationMin} min · ${e.count} questions</small></span><span class="tag t-${e.state}">${{ open: 'Open now', upcoming: 'Not open yet', closed: 'Closed' }[e.state]}</span></a>`).join('') || '<p class="muted">No exams.</p>'}</div>`;
+}
+
+async function viewExam(eid) {
+  const info = await api('exam/' + eid);
+  document.body.classList.add('exam-on');
+  const saved = examStore(eid) || {};
+  const rules = ['You have <b>' + info.durationMin + ' minutes</b> from the moment you start. The timer keeps running if you close the page; the exam is submitted automatically when time runs out.',
+    'One attempt per SCFHS number. If your connection drops, enter your details again to continue where you stopped.',
+    'Questions and choices appear in a different order for each trainee.',
+    'Stay on this page: leaving it, switching apps or copying is recorded and reported to the program.',
+    'Your answers are saved as you choose them. You will see your score at the end; the correct answers are not shown.'];
+  app.innerHTML = `<div class="exam-gate">
+    <div class="eg-card"><img src="brand/shield.png" alt="" width="48" height="56"><span class="kicker">${esc(S.board)}</span><h1>${esc(info.title)}</h1>
+      <div class="eg-facts"><div><b>${info.count}</b><span>questions</span></div><div><b>${info.durationMin}</b><span>minutes</span></div><div><b>${new Date(info.openAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Riyadh' })}</b><span>${new Date(info.openAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}–${new Date(info.closeAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}</span></div></div>
+      <div id="eg-state"></div>
+      <ul class="ticks">${rules.map((r) => `<li>${r}</li>`).join('')}</ul>
+      <form id="ef" class="list">
+        <label>Full name (as in SCFHS records)<input name="name" required value="${esc(saved.name || '')}" autocomplete="name"></label>
+        <label>SCFHS number<input name="scfhs" required value="${esc(saved.scfhs || '')}"></label>
+        <label>Exam password<input name="password" type="password" required autocomplete="off"></label>
+        <label class="eg-agree"><input type="checkbox" required style="width:auto"> I will answer on my own, without help or other resources.</label>
+        <div id="e"></div><button class="pri big">Start the exam</button></form>
+      <a href="#exam" class="muted" style="text-align:center">← Back</a></div></div>`;
+  const stEl = $('#eg-state');
+  const tickGate = () => {
+    const now = Date.now(), o = new Date(info.openAt), c = new Date(info.closeAt);
+    if (now < o) { const s = Math.floor((o - now) / 1000); stEl.innerHTML = `<div class="warn">Opens in <b>${Math.floor(s / 86400) ? Math.floor(s / 86400) + ' d ' : ''}${pad(Math.floor(s / 3600) % 24)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}</b></div>`; }
+    else if (now > c) stEl.innerHTML = '<div class="err">This exam is closed. If you already sat it, enter your details to see your result.</div>';
+    else stEl.innerHTML = `<div class="box">Open now — closes at ${fmt(info.closeAt)}</div>`;
+  };
+  tickGate();
+  const gt = setInterval(tickGate, 1000);
+  examCleanup = () => clearInterval(gt);
+  $('#ef').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const f = ev.target, btn = f.querySelector('button');
+    btn.disabled = true; btn.textContent = 'Starting…';
+    try {
+      const body = { name: f.name.value, scfhs: f.scfhs.value, password: f.password.value };
+      const r = await api(`exam/${eid}/start`, { body });
+      examStore(eid, { name: body.name, scfhs: body.scfhs });
+      clearInterval(gt);
+      if (r.submitted) return showResult(r);
+      runExam(eid, r);
+    } catch (e) { errBox(e); btn.disabled = false; btn.textContent = 'Start the exam'; }
+  };
+}
+
+function runExam(eid, st) {
+  const qs = st.questions, ans = { ...st.answers }, flagged = new Set();
+  const deadline = new Date(st.deadline).getTime();
+  let cur = qs.findIndex((q) => !ans[q.id]); if (cur < 0) cur = 0;
+  let done = false, warned5 = false;
+  const mark = encodeURIComponent(`${st.name}`);
+  app.innerHTML = `<div class="exam" id="exam">
+    <div class="ex-wm" style="--wm:'${esc(st.name).replace(/'/g, '')}'"></div>
+    <header class="ex-bar"><div class="ex-t"><b>${esc(st.title)}</b><small>${esc(st.name)}</small></div>
+      <div class="ex-timer" id="tm">--:--</div>
+      <button class="pri" id="fin">Submit</button></header>
+    <div class="ex-prog"><i id="pg"></i></div>
+    <div id="ex-warn"></div>
+    <main class="ex-main"><div id="qbox"></div>
+      <div class="ex-nav"><button id="prev">← Previous</button><button id="flag">⚑ Flag</button><button class="pri" id="next">Next →</button></div>
+      <div class="ex-grid" id="grid"></div><p class="muted ex-save" id="sv"></p></main></div>`;
+  void mark;
+  const send = (path, body) => api('exam/attempt/' + path, { body: { token: st.token, ...body } });
+  const draw = () => {
+    const q = qs[cur];
+    const ctx = q.group && (cur === 0 || qs[cur - 1].group !== q.group || true);
+    $('#qbox').innerHTML = `<p class="kicker">Question ${cur + 1} of ${qs.length}${flagged.has(q.id) ? ' · ⚑ flagged' : ''}</p>
+      ${ctx && q.stem ? `<div class="ex-stem">${esc(q.stem)}${q.images ? `<div class="ex-imgs">${q.images.map((s) => `<img src="${s}" alt="Epidemic curve" draggable="false">`).join('')}</div>` : ''}</div>` : ''}
+      <h2 class="ex-q">${esc(q.text)}</h2>
+      ${q.table ? `<div class="tw"><table class="ex-table"><tr>${q.table.head.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${q.table.rows.map((r) => `<tr>${r.map((c, i) => i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`).join('')}</tr>`).join('')}</table></div>` : ''}
+      <div class="ex-opts">${q.options.map((o, i) => `<button class="ex-opt ${ans[q.id] === o.id ? 'on' : ''}" data-o="${o.id}"><span>${'ABCDEFGH'[i]}</span>${esc(o.text)}</button>`).join('')}</div>`;
+    $('#qbox').querySelectorAll('.ex-opt').forEach((b) => b.onclick = async () => {
+      const oid = ans[q.id] === b.dataset.o ? null : b.dataset.o;
+      if (oid) ans[q.id] = oid; else delete ans[q.id];
+      draw();
+      $('#sv').textContent = 'Saving…';
+      try { await send('answer', { itemId: q.id, optionId: oid }); $('#sv').textContent = 'Saved ✓'; }
+      catch (e) { $('#sv').textContent = 'Not saved — check your connection (' + e.message + ')'; }
+    });
+    $('#prev').disabled = cur === 0;
+    $('#next').textContent = cur === qs.length - 1 ? 'Review & submit' : 'Next →';
+    $('#flag').classList.toggle('on', flagged.has(q.id));
+    const n = Object.keys(ans).length;
+    $('#pg').style.width = (n / qs.length * 100) + '%';
+    $('#grid').innerHTML = qs.map((x, i) => `<button class="${ans[x.id] ? 'a' : ''} ${flagged.has(x.id) ? 'f' : ''} ${i === cur ? 'c' : ''}" data-i="${i}">${i + 1}</button>`).join('');
+    $('#grid').querySelectorAll('button').forEach((b) => b.onclick = () => { cur = +b.dataset.i; draw(); window.scrollTo(0, 0); });
+  };
+  $('#prev').onclick = () => { if (cur) { cur--; draw(); window.scrollTo(0, 0); } };
+  $('#next').onclick = () => { if (cur < qs.length - 1) { cur++; draw(); window.scrollTo(0, 0); } else confirmSubmit(); };
+  $('#flag').onclick = () => { const id = qs[cur].id; flagged.has(id) ? flagged.delete(id) : flagged.add(id); draw(); };
+  const submit = async (auto) => {
+    if (done) return; done = true; cleanup();
+    app.innerHTML = '<div class="exam-gate"><div class="eg-card"><h1>Submitting…</h1></div></div>';
+    try { const r = await send('submit', {}); showResult({ ...r, autoSubmitted: r.autoSubmitted || auto }); }
+    catch (e) { app.innerHTML = `<div class="exam-gate"><div class="eg-card"><div class="err">${esc(e.message)}</div><p>Your saved answers are kept. Enter your details again to see your result.</p><a class="btn pri" href="#exam/${eid}">Continue</a></div></div>`; }
+  };
+  const confirmSubmit = () => {
+    const left = qs.length - Object.keys(ans).length;
+    $('#dlgBody').innerHTML = `<h2>Submit the exam?</h2>
+      <p>${left ? `<b>${left} question${left > 1 ? 's are' : ' is'} not answered.</b> ` : 'All questions are answered. '}${flagged.size ? `${flagged.size} flagged for review. ` : ''}You cannot change your answers after submitting.</p>
+      <div class="row bar"><button class="pri" id="ok">Submit now</button><button id="x">Keep working</button></div>`;
+    $('#x').onclick = () => $('#dlg').close();
+    $('#ok').onclick = () => { $('#dlg').close(); submit(false); };
+    $('#dlg').showModal();
+  };
+  $('#fin').onclick = confirmSubmit;
+  // timer
+  const tick = () => {
+    const s = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+    $('#tm').textContent = `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
+    $('#tm').classList.toggle('low', s <= 300);
+    if (s <= 300 && !warned5) { warned5 = true; warn('5 minutes left.'); }
+    if (s === 0) submit(true);
+  };
+  // anti-cheating: record leaving the page, copying, printing; block copy, right-click, selection
+  let lost = 0;
+  const warn = (m) => { $('#ex-warn').innerHTML = `<div class="ex-alert">${esc(m)}</div>`; clearTimeout(warn.t); warn.t = setTimeout(() => { const w = $('#ex-warn'); if (w) w.innerHTML = ''; }, 6000); };
+  const ev = (type) => send('event', { type }).catch(() => {});
+  const onVis = () => { if (document.hidden) { lost++; ev('hidden'); } else warn(`You left the exam page (${lost}×). This is recorded and reported.`); };
+  const onBlur = () => { if (!document.hidden) ev('blur'); };
+  const stop = (type) => (e) => { e.preventDefault(); ev(type); warn('Copying and right-click are disabled during the exam.'); };
+  const onCopy = stop('copy'), onCtx = stop('contextmenu'), onPaste = stop('paste');
+  const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && ['p', 's', 'c', 'u'].includes(e.key.toLowerCase())) { e.preventDefault(); ev(e.key.toLowerCase() === 'p' ? 'print' : 'copy'); } if (e.key === 'F12') { e.preventDefault(); ev('devtools'); } };
+  const onUnload = (e) => { e.preventDefault(); e.returnValue = ''; };
+  const onFs = () => { if (!document.fullscreenElement) ev('fullscreen-exit'); };
+  document.addEventListener('visibilitychange', onVis);
+  window.addEventListener('blur', onBlur);
+  document.addEventListener('copy', onCopy); document.addEventListener('cut', onCopy);
+  document.addEventListener('paste', onPaste); document.addEventListener('contextmenu', onCtx);
+  document.addEventListener('keydown', onKey);
+  window.addEventListener('beforeunload', onUnload);
+  document.addEventListener('fullscreenchange', onFs);
+  try { document.documentElement.requestFullscreen?.().catch(() => {}); } catch {}
+  const timer = setInterval(tick, 500);
+  function cleanup() {
+    clearInterval(timer);
+    document.removeEventListener('visibilitychange', onVis); window.removeEventListener('blur', onBlur);
+    document.removeEventListener('copy', onCopy); document.removeEventListener('cut', onCopy);
+    document.removeEventListener('paste', onPaste); document.removeEventListener('contextmenu', onCtx);
+    document.removeEventListener('keydown', onKey); window.removeEventListener('beforeunload', onUnload);
+    document.removeEventListener('fullscreenchange', onFs);
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  }
+  examCleanup = cleanup;
+  draw(); tick();
+}
+
+function showResult(r) {
+  if (examCleanup) { examCleanup(); examCleanup = null; }
+  const band = r.passed === true ? '<span class="tag t-done">Passed</span>' : r.passed === false ? '<span class="tag t-closed">Below the pass mark</span>' : '';
+  app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res">
+    <span class="kicker">Exam submitted${r.autoSubmitted ? ' automatically when time ran out' : ''}</span>
+    <h1>${esc(r.name || '')}</h1>
+    <div class="s-score res-ring" style="--p:${r.percent}"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52"/><circle class="arc" cx="60" cy="60" r="52" style="stroke-dashoffset:${327 - 327 * r.percent / 100}"/></svg><b>${r.percent}%</b></div>
+    <p class="res-score"><b>${r.score}</b> correct out of <b>${r.total}</b></p>${band}
+    <p class="muted">The correct answers are not shown. The program will review the results.</p>
+    <a class="btn" href="#">Back to the site</a></div></div>`;
+}
+
+// ---------- Admin: exams ----------
+
+async function viewExamsAdmin() {
+  const list = await api('admin/exams');
+  app.innerHTML = `<h1>Exams</h1><div class="list">${list.map((e) => `<a class="req" href="#admin/exams/${e.id}" style="text-decoration:none;color:inherit"><span class="win">${e.level}</span><span><b>${esc(e.title)}</b><br><small class="muted">${fmt(e.openAt)} → ${fmt(e.closeAt)} · ${e.durationMin} min · ${e.count} questions · ${e.submitted}/${e.attempts} submitted</small></span><span class="tag t-${e.state}">${e.state}</span></a>`).join('')}</div>`;
+}
+
+async function viewExamAdmin(eid) {
+  const d = await api('admin/exams/' + eid);
+  const e = d.exam, an = Object.fromEntries(d.analysis.items.map((x) => [x.id, x]));
+  const sub = d.attempts.filter((a) => a.submittedAt);
+  const avg = sub.length ? Math.round(sub.reduce((s, a) => s + a.percent, 0) / sub.length * 10) / 10 : null;
+  const L = 'ABCDEFGH';
+  const kr = d.analysis.kr20;
+  const url = `${location.origin}/#exam/${e.id}`;
+  app.innerHTML = `<p><a href="#admin/exams">← Exams</a></p><h1>${esc(e.title)}</h1>
+  <div class="card"><h3>Link for trainees</h3><div class="row"><code style="word-break:break-all">${esc(url)}</code><button id="cp">Copy</button></div></div>
+  <div class="grid4">
+    <div class="tile"><b style="font-size:1.6rem">${sub.length}</b><span class="muted">submitted · ${d.attempts.length - sub.length} in progress</span></div>
+    <div class="tile"><b style="font-size:1.6rem">${avg ?? '—'}${avg !== null ? '%' : ''}</b><span class="muted">average · ${sub.length ? Math.max(...sub.map((a) => a.percent)) + '% high · ' + Math.min(...sub.map((a) => a.percent)) + '% low' : ''}</span></div>
+    <div class="tile"><b style="font-size:1.6rem">${kr ?? '—'}</b><span class="muted">reliability (KR-20)${kr === null ? ' — needs 4+ results' : kr >= 0.7 ? ' · good' : kr >= 0.5 ? ' · acceptable' : ' · low'}</span></div>
+    <div class="tile"><b style="font-size:1.6rem">${e.items.filter((i) => !i.excluded).length}/${e.items.length}</b><span class="muted">questions counted</span></div></div>
+  <div class="card"><h3>Settings</h3><form id="es" class="grid2">
+    <label>Opens (Riyadh time)<input type="datetime-local" name="openAt" value="${toLocalInput(e.openAt)}"></label>
+    <label>Closes (Riyadh time)<input type="datetime-local" name="closeAt" value="${toLocalInput(e.closeAt)}"></label>
+    <label>Duration (minutes)<input type="number" name="durationMin" min="5" value="${e.durationMin}"></label>
+    <label>Exam password<input name="password" value="${esc(e.password)}"></label>
+    <label>Pass mark % (optional)<input type="number" name="passMark" min="0" max="100" value="${e.passMark ?? ''}"></label>
+    <div style="align-self:end"><button class="pri">Save settings</button></div></form><div id="e"></div></div>
+  <div class="card"><div class="row" style="justify-content:space-between"><h3>Results</h3><button id="csv">Download CSV</button></div><div class="tw"><table class="stack"><tr class="hd"><th>Name</th><th>SCFHS</th><th class="n">Score</th><th>Time used</th><th>Integrity</th><th></th></tr>
+    ${d.attempts.map((a) => `<tr><td class="ttl">${esc(a.name)}</td><td data-label="SCFHS">${esc(a.scfhs)}</td>
+      <td class="n" data-label="Score">${a.submittedAt ? `<b>${a.score}/${a.total}</b> · ${a.percent}%${a.autoSubmitted ? '<br><small class="muted">auto-submitted</small>' : ''}` : '<span class="tag t-late">In progress</span>'}</td>
+      <td data-label="Time used">${a.submittedAt ? Math.round((new Date(a.submittedAt) - new Date(a.startedAt)) / 60000) + ' min' : `until ${fmt(a.deadline)}`}</td>
+      <td data-label="Integrity">${(a.focusLost || 0) ? `<span class="tag ${a.focusLost > 3 ? 't-closed' : 't-late'}">left page ${a.focusLost}×</span>` : '<span class="tag t-done">OK</span>'}${(a.events || []).some((x) => ['copy', 'paste', 'print', 'devtools', 'contextmenu'].includes(x.type)) ? ' <span class="tag t-late">copy/print attempts</span>' : ''}${a.resumes ? ` <small class="muted">resumed ${a.resumes}×</small>` : ''}</td>
+      <td><div class="row"><button data-view="${a.id}">Answers</button><button class="bad" data-del="${a.id}">Reset</button></div></td></tr>`).join('') || '<tr><td class="muted">No attempts yet.</td></tr>'}</table></div></div>
+  <div class="card"><h3>Questions, key and item analysis</h3>
+    <p class="muted">Difficulty = share answering correctly. Discrimination = upper 27% minus lower 27% (≥0.3 good, &lt;0.2 poor, negative = check the key). Changing the key or excluding a question re-grades everyone immediately.</p>
+    <div class="list">${e.items.map((it, n) => { const x = an[it.id] || {}; return `<div class="tile ${it.excluded ? 'ex-off' : ''}">
+      <div class="row" style="justify-content:space-between"><b>${n + 1}. ${it.group ? `<small class="muted">[${it.group}]</small> ` : ''}${esc(it.text)}</b>${it.excluded ? '<span class="tag t-closed">Excluded</span>' : ''}</div>
+      ${it.keyNote || it.keyUnverified ? `<div class="warn">${it.keyUnverified ? 'No answer was marked for this question in the source file — the key was set by reading the figures. Please confirm. ' : ''}${esc(it.keyNote || '')}</div>` : ''}
+      <ol type="A" class="ex-akey">${it.options.map((o) => `<li class="${o.id === it.answer ? 'k' : ''}">${esc(o.text)} <small class="muted">${x.counts ? `· ${x.counts[o.id] || 0}` : ''}</small></li>`).join('')}</ol>
+      <div class="row"><span class="muted">Difficulty <b>${x.p ?? '—'}</b> · Discrimination <b>${x.D ?? '—'}</b>${x.unanswered ? ` · ${x.unanswered} blank` : ''}</span>${(x.flags || []).map((f) => `<span class="tag t-late">${f}</span>`).join('')}</div>
+      <div class="row"><label style="display:flex;gap:6px;align-items:center">Key <select data-key="${it.id}" style="width:auto">${it.options.map((o, i) => `<option value="${o.id}" ${o.id === it.answer ? 'selected' : ''}>${L[i]}</option>`).join('')}</select></label>
+        <button class="${it.excluded ? '' : 'bad'}" data-ex="${it.id}" data-v="${!it.excluded}">${it.excluded ? 'Restore question' : 'Delete question from scoring'}</button></div></div>`; }).join('')}</div></div>`;
+  $('#cp').onclick = () => navigator.clipboard?.writeText(url).then(() => { $('#cp').textContent = 'Copied ✓'; });
+  $('#es').onsubmit = async (ev) => {
+    ev.preventDefault(); const f = ev.target;
+    try { await api('admin/exams/' + eid, { body: { openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), durationMin: +f.durationMin.value, password: f.password.value, passMark: f.passMark.value } }); route(); }
+    catch (e2) { errBox(e2); }
+  };
+  app.querySelectorAll('[data-key]').forEach((s) => s.onchange = async () => { if (!confirm('Change the key and re-grade all results?')) return route(); await api(`admin/exams/${eid}/items/${s.dataset.key}`, { body: { answer: s.value } }); route(); });
+  app.querySelectorAll('[data-ex]').forEach((b) => b.onclick = async () => { if (!confirm(b.dataset.v === 'true' ? 'Remove this question from scoring for everyone? Results are re-graded.' : 'Count this question again?')) return; await api(`admin/exams/${eid}/items/${b.dataset.ex}`, { body: { excluded: b.dataset.v === 'true' } }); route(); });
+  app.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { if (!confirm('Delete this attempt? The trainee will be able to sit the exam again.')) return; await api(`admin/exams/${eid}/attempts/${b.dataset.del}`, { method: 'DELETE' }); route(); });
+  app.querySelectorAll('[data-view]').forEach((b) => b.onclick = () => {
+    const a = d.attempts.find((x) => x.id === b.dataset.view);
+    $('#dlgBody').innerHTML = `<h2>${esc(a.name)}</h2><p class="muted">${esc(a.scfhs)} · started ${fmt(a.startedAt)}${a.submittedAt ? ` · submitted ${fmt(a.submittedAt)}` : ''}</p>
+      <div class="tw"><table><tr><th>#</th><th>Question</th><th>Answer</th><th>Key</th></tr>${e.items.map((it, n) => { const c = a.answers[it.id]; const oi = (id) => it.options.findIndex((o) => o.id === id); return `<tr class="${it.excluded ? 'ex-off' : ''}"><td>${n + 1}</td><td>${esc(it.text.slice(0, 90))}${it.text.length > 90 ? '…' : ''}</td><td>${c ? `<span class="tag ${c === it.answer ? 't-done' : 't-closed'}">${L[oi(c)]}</span>` : '<span class="muted">—</span>'}</td><td>${L[oi(it.answer)]}</td></tr>`; }).join('')}</table></div>
+      ${(a.events || []).length ? `<h3>Activity log</h3><ul>${a.events.slice(-40).map((x) => `<li>${fmt(x.t)} · ${esc(x.type)}</li>`).join('')}</ul>` : ''}
+      <div class="bar"><button id="x">Close</button></div>`;
+    $('#x').onclick = () => $('#dlg').close();
+    $('#dlg').showModal();
+  });
+  $('#csv').onclick = () => {
+    const rows = [['Name', 'SCFHS', 'Score', 'Total', 'Percent', 'Started', 'Submitted', 'Auto-submitted', 'Left page', 'Resumed', ...e.items.map((_, n) => 'Q' + (n + 1))]];
+    for (const a of d.attempts) rows.push([a.name, a.scfhs, a.score ?? '', a.total ?? '', a.percent ?? '', a.startedAt, a.submittedAt || '', a.autoSubmitted ? 'yes' : '', a.focusLost || 0, a.resumes || 0, ...e.items.map((it) => { const c = a.answers[it.id]; return c ? L[it.options.findIndex((o) => o.id === c)] + (c === it.answer ? ' ✓' : '') : ''; })]);
+    const csv = '﻿' + rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = `${e.id}-results.csv`; link.click();
+  };
+}
+
 // ---------- Routing ----------
 
 async function route() {
@@ -622,16 +864,19 @@ async function route() {
   nav();
   footer();
   const site = { '': viewHome, about: viewAbout, specialty: viewSpecialty, program: viewProgram, competencies: viewCompetencies, research: viewResearch, assessment: viewAssessment, resources: viewResources, sites: viewResources, refs: viewResources };
-  const pub = { start: viewStart, portal: viewPortal, catalog: viewCatalog, login: viewLogin, register: viewRegister, guide: viewGuide };
+  const pub = { exam: viewExamList, start: viewStart, portal: viewPortal, catalog: viewCatalog, login: viewLogin, register: viewRegister, guide: viewGuide };
   app.classList.toggle('wide', h in site);
-  document.body.classList.remove('story-on');
+  document.body.classList.remove('story-on', 'exam-on');
+  if (examCleanup) { examCleanup(); examCleanup = null; }
   if (storyKeys) { document.removeEventListener('keydown', storyKeys); storyKeys = null; }
   window.scrollTo(0, 0);
   try {
     if (site[h]) return await site[h]();
     if (pub[h]) return await pub[h]();
+    if (h.startsWith('exam/')) return await viewExam(h.slice(5));
     if (!ME) return viewLogin();
-    if (ME.role === 'admin') return await ({ 'admin/reqs': viewReqsAdmin, 'admin/subs': viewSubs }[h] || viewUsers)();
+    if (ME.role === 'admin' && h.startsWith('admin/exams/')) return await viewExamAdmin(h.slice(12));
+    if (ME.role === 'admin') return await ({ 'admin/reqs': viewReqsAdmin, 'admin/subs': viewSubs, 'admin/exams': viewExamsAdmin }[h] || viewUsers)();
     return await viewDash();
   } catch (e) { app.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
