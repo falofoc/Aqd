@@ -638,6 +638,7 @@ async function viewExam(eid) {
   app.innerHTML = `<div class="exam-gate">
     <div class="eg-card"><img src="brand/shield.png" alt="" width="48" height="56"><span class="kicker">${esc(S.board)}</span><h1>${esc(info.title)}</h1>
       <div class="eg-facts"><div><b>${info.count}</b><span>questions</span></div><div><b>${info.durationMin}</b><span>minutes</span></div><div><b>${new Date(info.openAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Riyadh' })}</b><span>${new Date(info.openAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}–${new Date(info.closeAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}</span></div></div>
+      ${ME && ME.role === 'admin' ? '<div class="box"><b>Admin preview</b>You can sit this exam now, whatever its dates. Your attempt is not counted in the results or the analysis, and starting again replaces it.</div>' : ''}
       <div id="eg-state"></div>
       <ul class="ticks">${rules.map((r) => `<li>${r}</li>`).join('')}</ul>
       <form id="ef" class="list">

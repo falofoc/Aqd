@@ -269,3 +269,27 @@ test('T1 exam: hidden answers, password, one attempt, grading, excluding a quest
     assert.ok((await call('exam/t1/start', { body: me })).data.token);
   } finally { srv.close(); }
 });
+
+test('admin can preview a closed exam without it counting', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, { body, cookie } = {}) => {
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', body: body && JSON.stringify(body), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) } });
+    return { status: r.status, data: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  try {
+    const me = { name: 'Admin Test User', scfhs: 'TEST001', password: 'AFHSR26' };
+    assert.equal((await call('exam/t1/start', { body: me })).status, 403, 'not open for trainees');
+    const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
+    const st = (await call('exam/t1/start', { body: me, cookie: admin })).data;
+    assert.ok(st.token);
+    assert.equal((await call('exam/attempt/submit', { body: { token: st.token } })).data.total, 28);
+    const st2 = (await call('exam/t1/start', { body: me, cookie: admin })).data;
+    assert.ok(st2.token && st2.token !== st.token, 'a new preview replaces the old one');
+    const adm = (await call('admin/exams/t1', { cookie: admin })).data;
+    assert.equal(adm.attempts.length, 0);
+    assert.equal(adm.analysis.n, 0);
+  } finally { srv.close(); }
+});
