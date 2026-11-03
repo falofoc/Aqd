@@ -317,3 +317,28 @@ test('exam reviewer link: secret, read-only, revocable', async () => {
     assert.equal((await call('exam/t1/review/' + token)).status, 404);
   } finally { srv.close(); }
 });
+
+test('official evaluation forms: scoring rules and grading through the API', () => {
+  const { FORMS, scoreForm, formFor } = require('../lib/forms');
+  // CAP: 8 items on 1–5, N/A allowed → sum / (rated × 5) × 100
+  const cap = FORMS.cap, r = {};
+  cap.sections[0].items.forEach((_, i) => { r['s0i' + i] = 4; });
+  assert.equal(scoreForm(cap, r), 80);
+  r.s0i7 = 'na';
+  assert.equal(scoreForm(cap, r), 80); // 28 / 35
+  delete r.s0i0;
+  assert.throws(() => scoreForm(cap, r), /Rate every item/);
+  // Poster: no N/A allowed
+  const pr = {}; FORMS.poster.sections.forEach((sec, si) => sec.items.forEach((_, ii) => { pr[`s${si}i${ii}`] = 5; }));
+  assert.equal(scoreForm(FORMS.poster, pr), 100);
+  pr.s0i0 = 'na';
+  assert.throws(() => scoreForm(FORMS.poster, pr));
+  // Program plan: section marks out of 100
+  const pp = { s0: 5, s1: 8, s2: 12, s3: 20, s4: 10, s5: 15, s6: 7 };
+  assert.equal(scoreForm(FORMS.program, pp), 77);
+  assert.throws(() => scoreForm(FORMS.program, { ...pp, s3: 26 }), /between 0 and 25/);
+  // every marks form adds up to 100, and requirement types map to forms
+  for (const f of Object.values(FORMS)) if (f.kind === 'marks') assert.equal(f.sections.reduce((a, s) => a + s.max, 0), 100);
+  assert.equal(formFor({ type: 'cat' }).title, FORMS.cat.title);
+  assert.equal(formFor({ type: 'seminar' }), null);
+});

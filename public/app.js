@@ -130,6 +130,32 @@ function rubricTable(r, grade) {
   <tr><th>Total</th><th class="n">100</th>${grade ? `<th class="n">${grade.total}</th>` : ''}</tr></table></div>`;
 }
 
+// ---------- Official evaluation forms ----------
+
+function formExplain(f) {
+  if (f.kind === 'marks') return 'Each section is given marks up to its maximum; the sections add up to 100.';
+  const top = Math.max(...f.scale.map((x) => x[0]));
+  return `Each item is rated ${f.scale.map((x) => `${x[0]} = ${x[1]}`).join(' · ')}.${f.na ? ' Items marked N/A are left out.' : ''} Score = total ÷ (rated items × ${top}) × 100.`;
+}
+function formPreview(f) {
+  return `<div class="fm"><h3>Evaluation · ${esc(f.title)}</h3>
+    <p class="muted">${formExplain(f)} The form score counts for 90%; submitting on time adds 10 (1–7 days late: 5, later: 0).</p>
+    ${f.note ? `<p class="muted">${esc(f.note)}</p>` : ''}
+    ${f.sections.map((sec) => `<details class="fm-sec"><summary><b>${esc(sec.title)}</b>${sec.max ? `<span class="tag t-open">${sec.max} marks</span>` : `<span class="muted">${sec.items.length} item${sec.items.length > 1 ? 's' : ''}</span>`}</summary>
+      ${sec.items ? `<ol>${sec.items.map((it) => `<li>${esc(it.t)}</li>`).join('')}</ol>` : `<ul>${(sec.guide || []).map((g) => `<li>${esc(g)}</li>`).join('')}</ul>`}</details>`).join('')}
+    ${f.recommendation ? `<p class="muted">The reviewer also records a recommendation: ${f.recommendation.map(esc).join(' · ')}.</p>` : ''}</div>`;
+}
+// The evaluator's ratings, shown to the trainee after grading.
+function formResult(f, g) {
+  if (!f || !g || g.kind !== 'form') return '';
+  const lab = (v) => (v === 'na' ? 'N/A' : f.scale ? `${v} · ${(f.scale.find((x) => x[0] === v) || [])[1] || ''}` : v);
+  return `<details class="fm-sec"><summary><b>Form ratings</b> <span class="muted">form score ${g.formScore}/100</span></summary>
+    ${f.sections.map((sec, si) => (sec.items
+      ? `<p class="fm-h">${esc(sec.title)}</p><ul class="fm-r">${sec.items.map((it, ii) => `<li><span>${esc(it.t)}</span><b>${lab(g.responses['s' + si + 'i' + ii])}</b></li>`).join('')}</ul>`
+      : `<ul class="fm-r"><li><span>${esc(sec.title)}</span><b>${g.responses['s' + si]} / ${sec.max}</b></li></ul>`)).join('')}
+    ${g.recommendation ? `<p><b>Recommendation:</b> ${esc(g.recommendation)}</p>` : ''}</details>`;
+}
+
 function reqDetails(r) {
   return `<div class="row"><span class="win">${esc(r.window)}</span><span class="tag t-${r.state}">${STATE[r.state]}</span>${r.proposed ? '<span class="tag t-late">Proposed by curriculum</span>' : ''}</div>
   <h2>${esc(r.title)}</h2>
@@ -140,7 +166,7 @@ function reqDetails(r) {
    <div class="box"><b>File to submit</b><span>Accepted formats: <b>${r.fileTypes.map((x) => '.' + x).join(' ')}</b></span><span>Maximum size: ${r.maxMB} MB</span><span>${esc(r.howToSubmit)}</span></div>
   </div>
   <div><h3>Instructions</h3><ol class="steps">${r.instructions.map((s) => `<li>${esc(s)}</li>`).join('')}</ol></div>
-  <div><h3>Evaluation (100 points)</h3><p class="muted">Each criterion is rated Excellent 100% · Adequate 70% · Weak 40% · Absent 0%. Result: ≥90 exceeds · 70–89 meets · 50–69 borderline · below 50 does not meet.</p>${rubricTable(r, r.slots === 1 ? slotSub(r, 1)?.grade : null)}</div>
+  ${r.form ? formPreview(r.form) : `<div><h3>Evaluation (100 points)</h3><p class="muted">Each criterion is rated Excellent 100% · Adequate 70% · Weak 40% · Absent 0%. Result: ≥90 exceeds · 70–89 meets · 50–69 borderline · below 50 does not meet.</p>${rubricTable(r, r.slots === 1 ? slotSub(r, 1)?.grade : null)}</div>`}
   ${r.resources.length ? `<div><h3>References and tools</h3><ul>${r.resources.map((x) => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a></li>`).join('')}</ul></div>` : ''}`;
 }
 
@@ -151,7 +177,7 @@ function slotCard(r, i) {
   return `<div class="card" data-slot="${i}"><h3>${esc(slotLabel(r, i))}</h3>
     ${s?.rejected ? `<div class="err"><b>Rejected:</b> ${esc(s.rejectReason)}<br>Please submit a new file${resubmit ? ` (accepted until ${fmt(new Date(new Date(s.rejectedAt).getTime() + RESUBMIT_DAYS * 864e5))})` : ''}.</div>` : ''}
     ${s && !s.rejected ? `<p>Last upload: <a href="/api/submissions/${s.id}/file">${esc(s.fileName)}</a> · ${fmt(s.submittedAt)} ${s.late ? '<span class="tag t-late">Late</span>' : ''}</p>` : s ? '' : '<p class="muted">Not submitted yet.</p>'}
-    ${s?.grade ? `<div class="box"><span class="score">${s.grade.total}/100 · ${esc(s.grade.band)}</span>${s.grade.feedback ? `<p><b>Assessor feedback:</b> ${esc(s.grade.feedback)}</p>` : ''}</div>` : ''}
+    ${s?.grade ? `<div class="box"><span class="score">${s.grade.total}/100 · ${esc(s.grade.band)}</span>${s.grade.kind === 'form' ? `<span class="muted">Form ${s.grade.formScore}/100 × 90% + on time ${s.grade.timeliness}/10</span>` : ''}${s.grade.feedback ? `<p><b>Assessor feedback:</b> ${esc(s.grade.feedback)}</p>` : ''}${formResult(r.form, s.grade)}</div>` : ''}
     ${canUpload ? `<div class="drop"><input type="file" class="file" accept="${r.fileTypes.map((x) => '.' + x).join(',')}"><label style="margin-top:8px">Note to the assessor (optional)<input class="note"></label>
       <button class="pri up" style="margin-top:8px">${s && !s.rejected ? 'Replace file' : 'Upload file'}</button>${r.state === 'late' || (resubmit && r.state === 'closed') ? '<p class="err" style="margin-top:8px">Submitting now is after the deadline and will reduce the timeliness score.</p>' : ''}</div>`
       : `<p class="muted">${s?.grade ? 'Graded; the file can no longer be replaced.' : r.state === 'upcoming' ? 'Uploading opens when the window opens.' : r.state === 'closed' ? 'The submission window is closed.' : ''}</p>`}
@@ -280,10 +306,71 @@ async function viewSubs() {
   $('#fg').onchange = $('#fl').onchange = draw; draw();
 }
 
+// Reject a submission: the file is deleted and the trainee can upload a new one.
+async function rejectSub(sid) {
+  const reason = prompt('Reason for rejecting (the trainee will see it). The file will be deleted and the trainee can submit a new one.');
+  if (!reason || !reason.trim()) return;
+  try { await api('admin/reject/' + sid, { body: { reason } }); if ($('#dlg').open) $('#dlg').close(); route(); }
+  catch (e) { alert(e.message); }
+}
+
+// Grading with the program's official form: tap a rating per item (or marks per section); the score updates live.
+function gradeWithForm(s, r, t) {
+  const f = r.form, prev = s.grade?.kind === 'form' ? s.grade.responses : {};
+  const resp = { ...prev };
+  const top = f.scale ? Math.max(...f.scale.map((x) => x[0])) : 0;
+  $('#dlgBody').innerHTML = `<h2>${esc(r.title)}${r.slots > 1 ? ` · ${esc(slotLabel(r, s.slot || 1))}` : ''}</h2>
+   <p>${esc(s.user.name)} · <a href="/api/submissions/${s.id}/file">${esc(s.fileName)}</a> · ${fmt(s.submittedAt)}</p>
+   ${s.note ? `<div class="box">Trainee's note: ${esc(s.note)}</div>` : ''}
+   <div class="fm-head"><b>${esc(f.title)}</b><span class="muted">${formExplain(f)}</span>
+     ${f.scale ? `<div class="fm-legend">${f.scale.map((x) => `<span><b>${x[0]}</b> ${esc(x[1])}</span>`).join('')}${f.na ? '<span><b>N/A</b> not applicable</span>' : ''}</div>` : ''}</div>
+   ${f.sections.map((sec, si) => (sec.items ? `<div class="fm-g"><p class="fm-h">${esc(sec.title)}</p>${sec.items.map((it, ii) => `<div class="fm-item" data-k="s${si}i${ii}"><p>${esc(it.t)}</p><div class="fm-pick">${f.scale.map((x) => `<button type="button" data-v="${x[0]}" title="${esc(x[1])}">${x[0]}</button>`).join('')}${f.na ? '<button type="button" data-v="na">N/A</button>' : ''}</div></div>`).join('')}</div>`
+     : `<div class="fm-item fm-mark" data-k="s${si}"><div><p><b>${esc(sec.title)}</b> <span class="muted">/ ${sec.max}</span></p>${(sec.guide || []).length ? `<details><summary class="muted">What to look for</summary><ul>${sec.guide.map((g) => `<li>${esc(g)}</li>`).join('')}</ul></details>` : ''}</div><input type="number" min="0" max="${sec.max}" step="0.5" inputmode="decimal" value="${prev['s' + si] ?? ''}" aria-label="Marks for ${esc(sec.title)}"></div>`)).join('')}
+   ${f.question ? `<label>${esc(f.question)}<select id="fq"><option value="">—</option><option ${s.grade?.answer === 'Yes' ? 'selected' : ''}>Yes</option><option ${s.grade?.answer === 'No' ? 'selected' : ''}>No</option></select></label>` : ''}
+   ${f.recommendation ? `<label>Recommendation<select id="frec"><option value="">Choose…</option>${f.recommendation.map((x) => `<option ${s.grade?.recommendation === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>` : ''}
+   <label>Feedback to the trainee<textarea id="fb">${esc(s.grade?.feedback || '')}</textarea></label><div id="e"></div>
+   <div class="bar fm-bar"><div class="fm-sum"><span>Form <b id="fs">—</b>/100</span><span>On time <b>${t}</b>/10</span><span>Final <b id="ft">—</b>/100</span><small class="muted" id="fleft"></small></div>
+     <div class="row"><button class="pri" id="sv">Save grade</button><button id="x">Cancel</button>${s.grade ? '<button class="bad" id="rm">Remove grade</button>' : ''}<button class="bad" id="rej">Reject &amp; delete</button></div></div>`;
+  const items = [...$('#dlgBody').querySelectorAll('.fm-item')];
+  const calc = () => {
+    let sum = 0, rated = 0, missing = 0;
+    for (const el of items) {
+      const k = el.dataset.k;
+      if (el.classList.contains('fm-mark')) {
+        const v = el.querySelector('input').value;
+        if (v === '') { missing++; delete resp[k]; } else { resp[k] = Number(v); sum += Number(v); }
+      } else {
+        el.querySelectorAll('.fm-pick button').forEach((b) => b.classList.toggle('on', String(resp[k]) === b.dataset.v));
+        if (resp[k] === undefined) missing++; else if (resp[k] !== 'na') { sum += Number(resp[k]); rated++; }
+      }
+    }
+    const score = f.kind === 'marks' ? Math.round(sum * 10) / 10 : rated ? Math.round((sum / (rated * top)) * 1000) / 10 : 0;
+    $('#fs').textContent = score;
+    $('#ft').textContent = Math.round((score * 0.9 + t) * 10) / 10;
+    $('#fleft').textContent = missing ? `${missing} left` : 'All done ✓';
+  };
+  items.forEach((el) => {
+    el.querySelectorAll('.fm-pick button').forEach((b) => b.onclick = () => { resp[el.dataset.k] = b.dataset.v === 'na' ? 'na' : Number(b.dataset.v); calc(); });
+    const inp = el.querySelector('input'); if (inp) inp.oninput = calc;
+  });
+  calc();
+  $('#x').onclick = () => $('#dlg').close();
+  if (s.grade) $('#rm').onclick = async () => { await api('admin/grade/' + s.id, { method: 'DELETE' }); $('#dlg').close(); route(); };
+  $('#rej').onclick = () => rejectSub(s.id);
+  $('#sv').onclick = async () => {
+    try {
+      await api('admin/grade/' + s.id, { body: { responses: resp, recommendation: $('#frec')?.value || undefined, answer: $('#fq')?.value || undefined, feedback: $('#fb').value } });
+      $('#dlg').close(); route();
+    } catch (e) { errBox(e); }
+  };
+  $('#dlg').showModal();
+}
+
 function grade(s, R) {
   const r = R[s.reqId];
   const lateDays = (new Date(s.submittedAt) - new Date(r.closeAt)) / 864e5;
   const t = lateDays <= 0 ? 10 : lateDays <= 7 ? 5 : 0;
+  if (r.form) return gradeWithForm(s, r, t);
   $('#dlgBody').innerHTML = `<h2>${esc(r.title)}${r.slots > 1 ? ` · ${esc(slotLabel(r, s.slot || 1))}` : ''}</h2><p>${esc(s.user.name)} · <a href="/api/submissions/${s.id}/file">${esc(s.fileName)}</a> · ${fmt(s.submittedAt)}</p>
    ${s.note ? `<div class="box">Trainee's note: ${esc(s.note)}</div>` : ''}
    <div class="tw"><table class="stack"><tr class="hd"><th>Criterion</th><th class="n">Max</th><th>Rating</th><th class="n">Score</th></tr>
@@ -301,12 +388,7 @@ function grade(s, R) {
   $('#dlgBody').onchange = calc; calc();
   $('#x').onclick = () => $('#dlg').close();
   if (s.grade) $('#rm').onclick = async () => { await api('admin/grade/' + s.id, { method: 'DELETE' }); $('#dlg').close(); route(); };
-  $('#rej').onclick = async () => {
-    const reason = prompt('Reason for rejecting (the trainee will see it). The file will be deleted and the trainee can submit a new one.');
-    if (!reason || !reason.trim()) return;
-    try { await api('admin/reject/' + s.id, { body: { reason } }); $('#dlg').close(); route(); }
-    catch (e) { errBox(e); }
-  };
+  $('#rej').onclick = () => rejectSub(s.id);
   $('#sv').onclick = async () => {
     const ratings = [...$('#dlgBody').querySelectorAll('select[data-i]')].map((x) => x.value);
     try { await api('admin/grade/' + s.id, { body: { ratings, feedback: $('#fb').value } }); $('#dlg').close(); route(); }
