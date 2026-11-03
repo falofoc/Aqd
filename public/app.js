@@ -704,7 +704,7 @@ const examStore = (eid, v) => { try { if (v === undefined) return JSON.parse(loc
 
 async function viewExamList() {
   const list = await api('exam/list');
-  app.innerHTML = `<div class="box"><span class="kicker">Trainee Portal</span><h1>Exams</h1><p>No account needed: you sit the exam with your full name, SCFHS number and the exam password given by the program.</p></div>
+  app.innerHTML = `<div class="box"><span class="kicker">Trainee Portal</span><h1>Exams</h1><p>No account needed: you sit the exam with your full name, national ID number and the exam password given by the program.</p></div>
   <div class="list">${list.map((e) => `<a class="req" href="#exam/${e.id}" style="text-decoration:none;color:inherit"><span class="win">${e.level}</span><span><b>${esc(e.title)}</b><br><small class="muted">${fmt(e.openAt)} → ${fmt(e.closeAt)} · ${e.durationMin} min · ${e.count} questions</small></span><span class="tag t-${e.state}">${{ open: 'Open now', upcoming: 'Not open yet', closed: 'Closed' }[e.state]}</span></a>`).join('') || '<p class="muted">No exams.</p>'}</div>`;
 }
 
@@ -721,7 +721,7 @@ async function viewExam(eid) {
     'ترتيب الأسئلة والخيارات مختلف لكل متدرب.',
     'ابقَ في صفحة الاختبار: الخروج منها أو التنقل بين التطبيقات أو النسخ يُسجَّل ويُرفع للبرنامج.',
     'إجاباتك تُحفظ أولاً بأول، وتظهر لك درجتك في النهاية دون الإجابات الصحيحة.'] : ['You have <b>' + info.durationMin + ' minutes</b> from the moment you start. The timer keeps running if you close the page; the exam is submitted automatically when time runs out.',
-    'One attempt per SCFHS number. If your connection drops, enter your details again to continue where you stopped.',
+    'One attempt per ID number. If your connection drops, enter your details again to continue where you stopped.',
     'Questions and choices appear in a different order for each trainee.',
     'Stay on this page: leaving it, switching apps or copying is recorded and reported to the program.',
     'Your answers are saved as you choose them. You will see your score at the end; the correct answers are not shown.'];
@@ -737,8 +737,8 @@ async function viewExam(eid) {
         <label class="sug-wrap">الاسم الرباعي بالعربي<input name="name" required autocomplete="off" autocorrect="off" spellcheck="false" placeholder="اكتب أول اسمك واختر من القائمة" disabled><div class="sug" id="sug" hidden></div></label>
         <p class="muted ar" dir="rtl" id="nhint">أدخل كلمة المرور أولاً لتظهر أسماء المختبرين.</p>
         <label>رقم الهوية<input name="nid" required inputmode="numeric" autocomplete="off" maxlength="10" placeholder="10 أرقام" disabled></label>`
-        : `<label>Full name (as in SCFHS records)<input name="name" required value="${esc(saved.name || '')}" autocomplete="name"></label>
-        <label>SCFHS number<input name="scfhs" required value="${esc(saved.scfhs || '')}"></label>
+        : `<label>Full name<input name="name" required value="${esc(saved.name || '')}" autocomplete="name"></label>
+        <label>National ID number<input name="scfhs" required inputmode="numeric" maxlength="10" placeholder="10 digits" value="${esc(saved.scfhs || '')}"></label>
         <label>Exam password<input name="password" type="password" required autocomplete="off"></label>`}
         <label class="eg-agree"><input type="checkbox" required style="width:auto"> ${T('I will answer on my own, without help or other resources.', 'أتعهد بالإجابة بنفسي دون مساعدة أو مصادر أخرى.')}</label>
         <div id="e"></div><button class="pri big">${T('Start the exam', 'ابدأ الاختبار')}</button></form>
@@ -1003,8 +1003,8 @@ async function viewExamAdmin(eid) {
       <textarea name="roster" rows="8" dir="rtl" placeholder="سارة خالد العتيبي 1000000001">${esc((e.roster || []).map((x) => `${x.name} ${x.nid}`).join('\n'))}</textarea>
       <small class="muted">${(e.roster || []).length ? `${e.roster.length} trainees on the list — only they can sit the exam (name + matching ID).` : 'No list: anyone with the password can sit the exam.'}</small></label>
     <div style="align-self:end"><button class="pri">Save settings</button></div></form><div id="e"></div></div>
-  <div class="card"><div class="row" style="justify-content:space-between"><h3>Results</h3><button id="csv">Download CSV</button></div><div class="tw"><table class="stack"><tr class="hd"><th>Name</th><th>SCFHS</th><th class="n">Score</th><th>Time used</th><th>Integrity</th><th></th></tr>
-    ${d.attempts.map((a) => `<tr><td class="ttl">${esc(a.name)}</td><td data-label="SCFHS">${esc(a.scfhs)}</td>
+  <div class="card"><div class="row" style="justify-content:space-between"><h3>Results</h3><button id="csv">Download CSV</button></div><div class="tw"><table class="stack"><tr class="hd"><th>Name</th><th>ID</th><th class="n">Score</th><th>Time used</th><th>Integrity</th><th></th></tr>
+    ${d.attempts.map((a) => `<tr><td class="ttl">${esc(a.name)}</td><td data-label="ID">${esc(a.scfhs)}</td>
       <td class="n" data-label="Score">${a.submittedAt ? `<b>${a.score}/${a.total}</b> · ${a.percent}%${a.autoSubmitted ? '<br><small class="muted">auto-submitted</small>' : ''}` : '<span class="tag t-late">In progress</span>'}</td>
       <td data-label="Time used">${a.submittedAt ? Math.round((new Date(a.submittedAt) - new Date(a.startedAt)) / 60000) + ' min' : `until ${fmt(a.deadline)}`}</td>
       <td data-label="Integrity">${(a.focusLost || 0) ? `<span class="tag ${a.focusLost > 3 ? 't-closed' : 't-late'}">left page ${a.focusLost}×</span>` : '<span class="tag t-done">OK</span>'}${(a.events || []).some((x) => ['copy', 'paste', 'print', 'devtools', 'contextmenu'].includes(x.type)) ? ' <span class="tag t-late">copy/print attempts</span>' : ''}${a.resumes ? ` <small class="muted">resumed ${a.resumes}×</small>` : ''}</td>
@@ -1041,7 +1041,7 @@ async function viewExamAdmin(eid) {
     $('#dlg').showModal();
   });
   $('#csv').onclick = () => {
-    const rows = [['Name', 'SCFHS', 'Score', 'Total', 'Percent', 'Started', 'Submitted', 'Auto-submitted', 'Left page', 'Resumed', ...e.items.map((_, n) => 'Q' + (n + 1))]];
+    const rows = [['Name', 'ID number', 'Score', 'Total', 'Percent', 'Started', 'Submitted', 'Auto-submitted', 'Left page', 'Resumed', ...e.items.map((_, n) => 'Q' + (n + 1))]];
     for (const a of d.attempts) rows.push([a.name, a.scfhs, a.score ?? '', a.total ?? '', a.percent ?? '', a.startedAt, a.submittedAt || '', a.autoSubmitted ? 'yes' : '', a.focusLost || 0, a.resumes || 0, ...e.items.map((it) => { const c = a.answers[it.id]; return c ? ansLetters(it, c) + (ansRight(it, c) ? ' ✓' : '') : ''; })]);
     const csv = '﻿' + rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
     const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = `${e.id}-results.csv`; link.click();

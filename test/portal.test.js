@@ -234,7 +234,7 @@ test('T1 exam: hidden answers, password, one attempt, grading, excluding a quest
     const info = (await call('exam/t1')).data;
     assert.equal(info.count, 26);
     assert.equal(info.durationMin, 60);
-    const me = { name: 'Sara Ali Alqahtani', scfhs: '19RM123', password: 'AFHSR26' };
+    const me = { name: 'Sara Ali Alqahtani', scfhs: '1000000098', password: 'AFHSR26' };
     assert.equal((await call('exam/t1/start', { body: me })).status, 403, 'not open yet');
     // open it now
     await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(Date.now() - 6e4).toISOString(), closeAt: new Date(Date.now() + 36e5).toISOString() } });
@@ -280,7 +280,7 @@ test('admin can preview a closed exam without it counting', async () => {
     return { status: r.status, data: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
   };
   try {
-    const me = { name: 'Admin Test User', scfhs: 'TEST001', password: 'AFHSR26' };
+    const me = { name: 'Admin Test User', scfhs: '1000000099', password: 'AFHSR26' };
     assert.equal((await call('exam/t1/start', { body: me })).status, 403, 'not open for trainees');
     const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
     const st = (await call('exam/t1/start', { body: me, cookie: admin })).data;
@@ -371,7 +371,7 @@ test('exam roster: only listed trainees with the matching national ID can start'
     assert.equal(ok.name, 'سارة عبدالله العتيبي');
     assert.equal((await start('نوره فهد القحطاني', '1000000002')).status, 200);
     // the admin can still preview without being on the list
-    assert.ok((await call('exam/t1/start', { cookie: admin, body: { name: 'Admin Test User', scfhs: 'TEST001', password: 'AFHSR26' } })).data.token);
+    assert.ok((await call('exam/t1/start', { cookie: admin, body: { name: 'Admin Test User', scfhs: '1000000099', password: 'AFHSR26' } })).data.token);
     // a malformed list is refused
     assert.equal((await call('admin/exams/t1', { cookie: admin, body: { roster: 'just a name' } })).status, 400);
   } finally { srv.close(); }
