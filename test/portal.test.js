@@ -342,3 +342,37 @@ test('official evaluation forms: scoring rules and grading through the API', () 
   assert.equal(formFor({ type: 'cat' }).title, FORMS.cat.title);
   assert.equal(formFor({ type: 'seminar' }), null);
 });
+
+test('exam roster: only listed trainees with the matching national ID can start', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, { body, cookie } = {}) => {
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', body: body && JSON.stringify(body), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) } });
+    return { status: r.status, data: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  try {
+    const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
+    const roster = 'سارة عبدالله العتيبي \n1000000001\nنورة فهد القحطاني - ١٠٠٠٠٠٠٠٠٢';
+    await call('admin/exams/t1', { cookie: admin, body: { roster, openAt: new Date(Date.now() - 6e4).toISOString(), closeAt: new Date(Date.now() + 36e5).toISOString() } });
+    assert.equal((await call('exam/t1')).data.roster, true);
+    // names only after the right password, never ID numbers
+    assert.equal((await call('exam/t1/names', { body: { password: 'nope' } })).status, 403);
+    const names = (await call('exam/t1/names', { body: { password: 'AFHSR26' } })).data;
+    assert.equal(names.names.length, 2);
+    assert.ok(!JSON.stringify(names).includes('1000000001'));
+    const start = (name, nid) => call('exam/t1/start', { body: { name, nid, password: 'AFHSR26' } });
+    assert.equal((await start('Someone Else Entirely', '1000000001')).status, 403, 'not on the list');
+    assert.equal((await start('سارة عبدالله العتيبي', '1000000002')).status, 403, 'someone else’s ID');
+    // spelling variants and Arabic digits are accepted; the listed spelling is used
+    const ok = (await start('ساره عبد الله العتيبي', '١٠٠٠٠٠٠٠٠١')).data;
+    assert.ok(ok.token);
+    assert.equal(ok.name, 'سارة عبدالله العتيبي');
+    assert.equal((await start('نوره فهد القحطاني', '1000000002')).status, 200);
+    // the admin can still preview without being on the list
+    assert.ok((await call('exam/t1/start', { cookie: admin, body: { name: 'Admin Test User', scfhs: 'TEST001', password: 'AFHSR26' } })).data.token);
+    // a malformed list is refused
+    assert.equal((await call('admin/exams/t1', { cookie: admin, body: { roster: 'just a name' } })).status, 400);
+  } finally { srv.close(); }
+});
