@@ -805,8 +805,11 @@ async function viewExam(eid) {
 
 const picked = (q, oid) => (Array.isArray(window.__ans?.[q.id]) ? window.__ans[q.id].includes(oid) : window.__ans?.[q.id] === oid);
 
+const partShort = (t) => String(t || '').split(' — ')[0] || 'this part';
+
 function runExam(eid, st) {
-  const qs = st.questions, ans = { ...st.answers }, flagged = new Set();
+  let qs = st.questions, part = st.part || { index: 0, count: 1, title: '', next: null };
+  const ans = { ...st.answers }, flagged = new Set();
   window.__ans = ans;
   const deadline = new Date(st.deadline).getTime();
   let cur = qs.findIndex((q) => !ans[q.id]); if (cur < 0) cur = 0;
@@ -814,9 +817,9 @@ function runExam(eid, st) {
   const mark = encodeURIComponent(`${st.name}`);
   app.innerHTML = `<div class="exam" id="exam">
     <div class="ex-wm" style="--wm:'${esc(st.name).replace(/'/g, '')}'"></div>
-    <header class="ex-bar"><div class="ex-t"><b>${esc(st.title)}</b><small>${esc(st.name)}</small></div>
+    <header class="ex-bar"><div class="ex-t"><b id="ptitle">${esc(part.title || st.title)}</b><small>${esc(st.name)}</small></div>
       <div class="ex-timer" id="tm">--:--</div>
-      <button class="pri" id="fin">Submit</button></header>
+      <button class="pri" id="fin">${part.next ? 'Finish part' : 'Submit'}</button></header>
     <div class="ex-prog"><i id="pg"></i></div>
     <div id="ex-warn"></div>
     <main class="ex-main"><div id="qbox"></div>
@@ -860,7 +863,7 @@ function runExam(eid, st) {
       saveAnswer(q.id, oid);
     });
     $('#prev').disabled = cur === 0;
-    $('#next').textContent = cur === qs.length - 1 ? 'Review & submit' : 'Next →';
+    $('#next').textContent = cur === qs.length - 1 ? (part.next ? `Finish ${partShort(part.title)} →` : 'Review & submit') : 'Next →';
     $('#flag').classList.toggle('on', flagged.has(q.id));
     const n = Object.keys(ans).length;
     $('#pg').style.width = (n / qs.length * 100) + '%';
@@ -876,8 +879,33 @@ function runExam(eid, st) {
     try { await queue; const r = await send('submit', {}); showResult({ ...r, autoSubmitted: r.autoSubmitted || auto }); }
     catch (e) { app.innerHTML = `<div class="exam-gate"><div class="eg-card"><div class="err">${esc(e.message)}</div><p>Your saved answers are kept. Enter your details again to see your result.</p><a class="btn pri" href="#exam/${eid}">Continue</a></div></div>`; }
   };
+  // Finishing a part locks it: its answers can no longer be changed.
+  const goNextPart = async () => {
+    $('#dlgBody').innerHTML = '<h2>Saving your answers…</h2>';
+    try {
+      await queue;
+      const r = await send('next-part', {});
+      qs = r.questions; part = r.part; cur = 0; flagged.clear();
+      Object.assign(ans, r.answers || {});
+      $('#ptitle').textContent = part.title; $('#fin').textContent = part.next ? 'Finish part' : 'Submit';
+      $('#dlg').close();
+      warn(`${part.title} has started. ${partShort(partsDoneTitle)} is closed.`);
+      draw(); window.scrollTo(0, 0);
+    } catch (e) { $('#dlgBody').innerHTML = `<div class="err">${esc(e.message)}</div><div class="bar"><button id="x">Close</button></div>`; $('#x').onclick = () => $('#dlg').close(); }
+  };
+  let partsDoneTitle = '';
   const confirmSubmit = () => {
-    const left = qs.length - Object.keys(ans).length;
+    const left = qs.filter((q) => !ans[q.id]).length;
+    if (part.next) {
+      $('#dlgBody').innerHTML = `<h2>Finish ${esc(partShort(part.title))}?</h2>
+        <p>${left ? `<b>${left} question${left > 1 ? 's are' : ' is'} not answered.</b> ` : 'All questions in this part are answered. '}${flagged.size ? `${flagged.size} flagged for review. ` : ''}</p>
+        <p class="warn"><b>You cannot come back to ${esc(partShort(part.title))}</b> after moving on. The timer keeps running for the whole exam.</p>
+        <div class="row bar"><button class="pri" id="ok">Go to ${esc(partShort(part.next))} →</button><button id="x">Keep working</button></div>`;
+      $('#x').onclick = () => $('#dlg').close();
+      $('#ok').onclick = () => { partsDoneTitle = part.title; goNextPart(); };
+      $('#dlg').showModal();
+      return;
+    }
     $('#dlgBody').innerHTML = `<h2>Submit the exam?</h2>
       <p>${left ? `<b>${left} question${left > 1 ? 's are' : ' is'} not answered.</b> ` : 'All questions are answered. '}${flagged.size ? `${flagged.size} flagged for review. ` : ''}You cannot change your answers after submitting.</p>
       <div class="row bar"><button class="pri" id="ok">Submit now</button><button id="x">Keep working</button></div>`;
@@ -934,7 +962,8 @@ function showResult(r) {
     <span class="kicker">Exam submitted${r.autoSubmitted ? ' automatically when time ran out' : ''}</span>
     <h1>${esc(r.name || '')}</h1>
     <div class="s-score res-ring" style="--p:${r.percent}"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52"/><circle class="arc" cx="60" cy="60" r="52" style="stroke-dashoffset:${327 - 327 * r.percent / 100}"/></svg><b>${r.percent}</b></div>
-    <p class="res-score">Score: <b>${r.percent} / 100</b></p><p class="muted">${r.score} correct out of ${r.total} questions</p>${band}
+    <p class="res-score">Score: <b>${r.percent} / 100</b></p>
+    ${r.byPart && r.parts ? `<div class="res-parts">${r.parts.map((p) => r.byPart[p.id] ? `<div><span>${esc(p.title)}</span><b>${r.byPart[p.id].score}/${r.byPart[p.id].total}</b></div>` : '').join('')}</div>` : ''}<p class="muted">${r.score} correct out of ${r.total} questions</p>${band}
     <p class="muted">The correct answers are not shown. The program will review the results.</p>
     <a class="btn" href="#">Back to the site</a></div></div>`;
 }
@@ -949,14 +978,15 @@ async function viewExamReview(eid, token) {
   document.body.classList.add('exam-on');
   const e = await api(`exam/${eid}/review/${encodeURIComponent(token)}`);
   const L = 'ABCDEFGH';
-  let n = 0, lastGroup = null;
+  let n = 0, lastGroup = null, lastPart = null;
   app.innerHTML = `<div class="rv">
     <header class="rv-head"><img src="brand/shield.png" alt="" width="40" height="47"><div><span class="kicker">${esc(S.board)} · Exam review</span><h1>${esc(e.title)}</h1>
       <p class="muted">${esc(e.course || '')} · ${e.items.length} questions · ${e.durationMin} minutes · correct answer shown in green. Confidential — please do not share.</p></div>
       <button onclick="window.print()" class="rv-print">Print / save as PDF</button></header>
     ${e.items.map((it) => {
       const g = it.group && it.group !== lastGroup ? e.groups[it.group] : null; lastGroup = it.group || null; n++;
-      return `${g ? `<div class="ex-stem">${esc(g.stem)}${g.images ? `<div class="ex-imgs">${g.images.map((src, i) => `<figure><img src="${src}" alt=""><figcaption>Curve ${L[i]}</figcaption></figure>`).join('')}</div>` : ''}</div>` : ''}
+      const ph = e.parts && it.part && it.part !== lastPart ? e.parts.find((pt) => pt.id === it.part) : null; if (ph) lastPart = it.part;
+      return `${ph ? `<h2 class="rv-part">${esc(ph.title)}</h2>` : ''}${g ? `<div class="ex-stem">${esc(g.stem)}${g.images ? `<div class="ex-imgs">${g.images.map((src, i) => `<figure><img src="${src}" alt=""><figcaption>Curve ${L[i]}</figcaption></figure>`).join('')}</div>` : ''}</div>` : ''}
       <section class="rv-q ${it.excluded ? 'ex-off' : ''}"><p class="rv-n">Question ${n}${it.excluded ? ' · <b>removed from scoring</b>' : ''}</p>
         <p class="rv-t">${esc(it.text)}</p>
         ${it.table ? `<div class="tw"><table class="ex-table"><tr>${it.table.head.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${it.table.rows.map((r) => `<tr>${r.map((c, i) => i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`).join('')}</tr>`).join('')}</table></div>` : ''}
@@ -1005,7 +1035,7 @@ async function viewExamAdmin(eid) {
     <div style="align-self:end"><button class="pri">Save settings</button></div></form><div id="e"></div></div>
   <div class="card"><div class="row" style="justify-content:space-between"><h3>Results</h3><button id="csv">Download CSV</button></div><div class="tw"><table class="stack"><tr class="hd"><th>Name</th><th>ID</th><th class="n">Score</th><th>Time used</th><th>Integrity</th><th></th></tr>
     ${d.attempts.map((a) => `<tr><td class="ttl">${esc(a.name)}</td><td data-label="ID">${esc(a.scfhs)}</td>
-      <td class="n" data-label="Score">${a.submittedAt ? `<b>${a.score}/${a.total}</b> · ${a.percent}%${a.autoSubmitted ? '<br><small class="muted">auto-submitted</small>' : ''}` : '<span class="tag t-late">In progress</span>'}</td>
+      <td class="n" data-label="Score">${a.submittedAt ? `<b>${a.score}/${a.total}</b> · ${a.percent}%${a.byPart && e.parts ? `<br><small class="muted">${e.parts.map((pt) => a.byPart[pt.id] ? `${esc(partShort(pt.title))}: ${a.byPart[pt.id].score}/${a.byPart[pt.id].total}` : '').join(' · ')}</small>` : ''}${a.autoSubmitted ? '<br><small class="muted">auto-submitted</small>' : ''}` : '<span class="tag t-late">In progress</span>'}</td>
       <td data-label="Time used">${a.submittedAt ? Math.round((new Date(a.submittedAt) - new Date(a.startedAt)) / 60000) + ' min' : `until ${fmt(a.deadline)}`}</td>
       <td data-label="Integrity">${(a.focusLost || 0) ? `<span class="tag ${a.focusLost > 3 ? 't-closed' : 't-late'}">left page ${a.focusLost}×</span>` : '<span class="tag t-done">OK</span>'}${(a.events || []).some((x) => ['copy', 'paste', 'print', 'devtools', 'contextmenu'].includes(x.type)) ? ' <span class="tag t-late">copy/print attempts</span>' : ''}${a.resumes ? ` <small class="muted">resumed ${a.resumes}×</small>` : ''}</td>
       <td><div class="row"><button data-view="${a.id}">Answers</button><button class="bad" data-del="${a.id}">Reset</button></div></td></tr>`).join('') || '<tr><td class="muted">No attempts yet.</td></tr>'}</table></div></div>
