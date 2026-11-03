@@ -355,3 +355,13 @@ button.big{padding:14px;font-size:1.1rem}
 
 .ar{text-align:right;font-family:"IBM Plex Sans Arabic","IBM Plex Sans",sans-serif}
 .ar input{text-align:right}
+
+.ar-card{font-family:"IBM Plex Sans Arabic","IBM Plex Sans",sans-serif;text-align:right}
+.ar-card .ticks li{padding-left:0;padding-right:22px}.ar-card .ticks li::before{left:auto;right:4px}
+.ar-card input{text-align:right}
+.sug-wrap{position:relative}
+.sug{position:absolute;top:100%;inset-inline:0;z-index:10;background:var(--sf);border:1px solid var(--ac);border-radius:10px;margin-top:4px;box-shadow:0 10px 30px #0003;overflow:hidden;display:grid}
+.sug button{border:0;border-bottom:1px solid var(--ln);border-radius:0;background:none;text-align:right;padding:12px 14px;font:600 17px "IBM Plex Sans Arabic",sans-serif}
+.sug button:last-child{border-bottom:0}.sug button:hover,.sug button:focus{background:var(--acs)}
+.sug p{margin:0;padding:10px 14px}
+.sug[hidden]{display:none}
