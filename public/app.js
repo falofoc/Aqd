@@ -210,12 +210,40 @@ function openReq(r) {
 
 // ---------- Admin ----------
 
+// ---------- Admin edit lock: settings can't be changed by accident ----------
+const LOCK_MIN = 10;
+let lockTimer = null;
+const unlockedUntil = () => { try { return Number(sessionStorage.getItem('editUnlock')) || 0; } catch { return 0; } };
+const isLocked = () => Date.now() > unlockedUntil();
+const lockBar = () => '<div class="lockbar" id="lockbar"></div>';
+// Disables every control inside [data-lock] (except [data-free]) while editing is locked.
+function applyLock(root = app) {
+  const locked = isLocked();
+  root.querySelectorAll('[data-lock] input, [data-lock] select, [data-lock] textarea, [data-lock] button:not([data-free])').forEach((el) => { el.disabled = locked; });
+  root.querySelectorAll('[data-lock]').forEach((el) => el.classList.toggle('locked', locked));
+  const bar = $('#lockbar');
+  if (!bar) return;
+  const paint = () => {
+    const left = Math.max(0, Math.round((unlockedUntil() - Date.now()) / 1000));
+    bar.className = 'lockbar ' + (left ? 'open' : '');
+    bar.innerHTML = left
+      ? `<span>🔓 Editing unlocked — locks again in <b>${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}</b></span><button data-free id="lockNow">Lock now</button>`
+      : `<span>🔒 Editing is locked to prevent accidental changes. You can still view, download and grade.</span><button class="pri" data-free id="unlock">Unlock editing (${LOCK_MIN} min)</button>`;
+    const set = (v) => { try { sessionStorage.setItem('editUnlock', String(v)); } catch {} applyLock(root); if ($('#dlg').open) applyLock($('#dlgBody')); };
+    if ($('#unlock')) $('#unlock').onclick = () => set(Date.now() + LOCK_MIN * 60000);
+    if ($('#lockNow')) $('#lockNow').onclick = () => set(0);
+    if (!left && lockTimer) { clearInterval(lockTimer); lockTimer = null; }
+  };
+  paint();
+  if (!locked && !lockTimer) lockTimer = setInterval(() => { if (!document.body.contains(bar)) { clearInterval(lockTimer); lockTimer = null; return; } if (isLocked()) { applyLock(root); if ($('#dlg').open) applyLock($('#dlgBody')); } else paint(); }, 1000);
+}
+
 async function viewUsers() {
   const [users, { closedLevels }] = await Promise.all([api('admin/users'), api('registration')]);
   const st = { pending: ['Awaiting activation', 't-late'], active: ['Active', 't-open'], disabled: ['Disabled', 't-closed'] };
-  app.innerHTML = `<h1>Trainees</h1><div class="box">New registrations are listed first. Check the SCFHS number, then activate the account and set the level.</div>
-  <div class="card"><h3>Registration open for</h3><div class="row" id="reg">${['R1', 'R2', 'R3', 'R4'].map((l) => `<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" value="${l}" style="width:auto" ${closedLevels.includes(l) ? '' : 'checked'}> ${l}</label>`).join('')}</div><p class="muted">Unticked levels cannot register. Existing accounts are not affected.</p></div>
-  <div class="tw card"><table class="stack"><tr class="hd"><th>Name</th><th>Email / mobile</th><th>SCFHS no.</th><th>Level</th><th>Status</th><th>VIP</th><th></th></tr>
+  app.innerHTML = `<h1>Trainees</h1>${lockBar()}<div class="box">New registrations are listed first. Check the SCFHS number, then activate the account and set the level.</div>
+  <div class="card" data-lock><h3>Registration open for</h3><div class="row" id="reg">${['R1', 'R2', 'R3', 'R4'].map((l) => `<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" value="${l}" style="width:auto" ${closedLevels.includes(l) ? '' : 'checked'}> ${l}</label>`).join('')}</div><p class="muted">Unticked levels cannot register. Existing accounts are not affected.</p></div>
+  <div class="tw card" data-lock><table class="stack"><tr class="hd"><th>Name</th><th>Email / mobile</th><th>SCFHS no.</th><th>Level</th><th>Status</th><th>VIP</th><th></th></tr>
   ${users.sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0)).map((u) => `<tr data-id="${u.id}"><td class="ttl">${esc(u.name)}</td><td data-label="Email / mobile">${esc(u.email)}<br>${esc(u.phone)}</td><td data-label="SCFHS no.">${esc(u.scfhs)}</td>
    <td data-label="Level"><select data-lv>${LEVEL_OPTS(u.level)}</select></td>
    <td data-label="Status"><span class="tag ${st[u.status][1]}">${st[u.status][0]}</span></td>
@@ -229,11 +257,12 @@ async function viewUsers() {
     $('[data-lv]', tr).onchange = (e) => save({ level: e.target.value });
     $('[data-vip]', tr).onchange = (e) => save({ vip: e.target.checked });
   });
+  applyLock();
 }
 
 async function viewReqsAdmin() {
   const reqs = await api('requirements');
-  app.innerHTML = `<div class="row" style="justify-content:space-between"><h1>Requirements</h1><button class="pri" id="new">+ New requirement</button></div>
+  app.innerHTML = `<div class="row" style="justify-content:space-between" data-lock><h1>Requirements</h1><button class="pri" id="new">+ New requirement</button></div>${lockBar()}
   <div class="filters"><select id="fl"><option value="">All levels</option>${LEVEL_OPTS()}</select><input id="q" placeholder="Search"></div>
   <div class="list" id="l"></div>`;
   const draw = () => {
@@ -245,10 +274,11 @@ async function viewReqsAdmin() {
   };
   $('#fl').onchange = $('#q').oninput = draw; draw();
   $('#new').onclick = () => editReq({ title: '', level: 'R1', window: '', description: '', instructions: [], rubric: [{ name: 'Content', max: 90 }], resources: [], fileTypes: ['pdf'], howToSubmit: '', maxMB: 25, lateDays: 14, published: false });
+  applyLock();
 }
 
 function editReq(r) {
-  $('#dlgBody').innerHTML = `<h2>${r.id ? 'Edit requirement' : 'New requirement'}</h2><form id="f" class="list">
+  $('#dlgBody').innerHTML = `<h2>${r.id ? 'Edit requirement' : 'New requirement'}</h2>${isLocked() ? '<p class="warn">🔒 Editing is locked. Close this and press <b>Unlock editing</b> to make changes.</p>' : ''}<form id="f" class="list" data-lock>
    <div class="grid2"><label>Title<input name="title" value="${esc(r.title)}" required></label>
     <label>Level<select name="level">${LEVEL_OPTS(r.level)}</select></label>
     <label>Label (e.g. MAR or JAN–FEB)<input name="window" value="${esc(r.window)}"></label>
@@ -266,7 +296,7 @@ function editReq(r) {
    <label>Evaluation criteria (one per line: points | criterion — must total 90; 10 for timeliness is added automatically)<textarea name="rubric" rows="6">${esc(r.rubric.map((c) => `${c.max} | ${c.name}`).join('\n'))}</textarea></label>
    <label>References (one per line: title | link)<textarea name="resources">${esc(r.resources.map((x) => `${x.title} | ${x.url}`).join('\n'))}</textarea></label>
    <div id="e"></div>
-   <div class="row bar"><button class="pri">Save</button><button type="button" id="x">Cancel</button>${r.id ? '<button type="button" class="bad" id="del">Delete</button>' : ''}</div></form>`;
+   <div class="row bar"><button class="pri">Save</button><button type="button" id="x" data-free>Cancel</button>${r.id ? '<button type="button" class="bad" id="del">Delete</button>' : ''}</div></form>`;
   const lines = (v) => v.split('\n').map((s) => s.trim()).filter(Boolean);
   $('#x').onclick = () => $('#dlg').close();
   if (r.id) $('#del').onclick = async () => { if (!confirm('Delete this requirement?')) return; try { await api('admin/requirements/' + r.id, { method: 'DELETE' }); $('#dlg').close(); route(); } catch (e) { errBox(e); } };
@@ -284,6 +314,7 @@ function editReq(r) {
     try { await api('admin/requirements' + (r.id ? '/' + r.id : ''), { body }); $('#dlg').close(); route(); }
     catch (e) { errBox(e); }
   };
+  applyLock($('#dlgBody'));
   $('#dlg').showModal();
 }
 
@@ -957,6 +988,7 @@ function runExam(eid, st) {
 
 function showResult(r) {
   if (examCleanup) { examCleanup(); examCleanup = null; }
+  if (lockTimer) { clearInterval(lockTimer); lockTimer = null; }
   const band = r.passed === true ? '<span class="tag t-done">Passed</span>' : r.passed === false ? '<span class="tag t-closed">Below the pass mark</span>' : '';
   app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res">
     <span class="kicker">Exam submitted${r.autoSubmitted ? ' automatically when time ran out' : ''}</span>
@@ -1013,17 +1045,17 @@ async function viewExamAdmin(eid) {
   const L = 'ABCDEFGH';
   const kr = d.analysis.kr20;
   const url = `${location.origin}/#exam/${e.id}`;
-  app.innerHTML = `<p><a href="#admin/exams">← Exams</a></p><h1>${esc(e.title)}</h1>
-  <div class="card"><h3>Link for trainees</h3><div class="row"><code style="word-break:break-all">${esc(url)}</code><button id="cp">Copy</button></div></div>
-  <div class="card"><h3>Reviewer link</h3><p class="muted">A secret, read-only link showing every question with its options and the correct answer, for an outside reviewer — no sign-in needed. Revoke it when the review is done.</p>
-    ${e.reviewToken ? `<div class="row"><code style="word-break:break-all">${esc(`${location.origin}/#review/${e.id}/${e.reviewToken}`)}</code><button id="rvc">Copy</button><a class="btn" target="_blank" rel="noopener" href="#review/${e.id}/${e.reviewToken}">Open</a><button class="bad" id="rvx">Revoke</button></div>`
+  app.innerHTML = `<p><a href="#admin/exams">← Exams</a></p><h1>${esc(e.title)}</h1>${lockBar()}
+  <div class="card"><h3>Link for trainees</h3><div class="row"><code style="word-break:break-all">${esc(url)}</code><button id="cp" data-free>Copy</button></div></div>
+  <div class="card" data-lock><h3>Reviewer link</h3><p class="muted">A secret, read-only link showing every question with its options and the correct answer, for an outside reviewer — no sign-in needed. Revoke it when the review is done.</p>
+    ${e.reviewToken ? `<div class="row"><code style="word-break:break-all">${esc(`${location.origin}/#review/${e.id}/${e.reviewToken}`)}</code><button id="rvc" data-free>Copy</button><a class="btn" target="_blank" rel="noopener" href="#review/${e.id}/${e.reviewToken}">Open</a><button class="bad" id="rvx">Revoke</button></div>`
       : '<button class="pri" id="rvn">Create reviewer link</button>'}</div>
   <div class="grid4">
     <div class="tile"><b style="font-size:1.6rem">${sub.length}</b><span class="muted">submitted · ${d.attempts.length - sub.length} in progress</span></div>
     <div class="tile"><b style="font-size:1.6rem">${avg ?? '—'}${avg !== null ? '%' : ''}</b><span class="muted">average · ${sub.length ? Math.max(...sub.map((a) => a.percent)) + '% high · ' + Math.min(...sub.map((a) => a.percent)) + '% low' : ''}</span></div>
     <div class="tile"><b style="font-size:1.6rem">${kr ?? '—'}</b><span class="muted">reliability (KR-20)${kr === null ? ' — needs 4+ results' : kr >= 0.7 ? ' · good' : kr >= 0.5 ? ' · acceptable' : ' · low'}</span></div>
     <div class="tile"><b style="font-size:1.6rem">${e.items.filter((i) => !i.excluded).length}/${e.items.length}</b><span class="muted">questions counted</span></div></div>
-  <div class="card"><h3>Settings</h3><form id="es" class="grid2">
+  <div class="card" data-lock><h3>Settings</h3><form id="es" class="grid2">
     <label>Opens (Riyadh time)<input type="datetime-local" name="openAt" value="${toLocalInput(e.openAt)}"></label>
     <label>Closes (Riyadh time)<input type="datetime-local" name="closeAt" value="${toLocalInput(e.closeAt)}"></label>
     <label>Duration (minutes)<input type="number" name="durationMin" min="5" value="${e.durationMin}"></label>
@@ -1033,13 +1065,13 @@ async function viewExamAdmin(eid) {
       <textarea name="roster" rows="8" dir="rtl" placeholder="سارة خالد العتيبي 1000000001">${esc((e.roster || []).map((x) => `${x.name} ${x.nid}`).join('\n'))}</textarea>
       <small class="muted">${(e.roster || []).length ? `${e.roster.length} trainees on the list — only they can sit the exam (name + matching ID).` : 'No list: anyone with the password can sit the exam.'}</small></label>
     <div style="align-self:end"><button class="pri">Save settings</button></div></form><div id="e"></div></div>
-  <div class="card"><div class="row" style="justify-content:space-between"><h3>Results</h3><button id="csv">Download CSV</button></div><div class="tw"><table class="stack"><tr class="hd"><th>Name</th><th>ID</th><th class="n">Score</th><th>Time used</th><th>Integrity</th><th></th></tr>
+  <div class="card" data-lock><div class="row" style="justify-content:space-between"><h3>Results</h3><button id="csv" data-free>Download CSV</button></div><div class="tw"><table class="stack"><tr class="hd"><th>Name</th><th>ID</th><th class="n">Score</th><th>Time used</th><th>Integrity</th><th></th></tr>
     ${d.attempts.map((a) => `<tr><td class="ttl">${esc(a.name)}</td><td data-label="ID">${esc(a.scfhs)}</td>
       <td class="n" data-label="Score">${a.submittedAt ? `<b>${a.score}/${a.total}</b> · ${a.percent}%${a.byPart && e.parts ? `<br><small class="muted">${e.parts.map((pt) => a.byPart[pt.id] ? `${esc(partShort(pt.title))}: ${a.byPart[pt.id].score}/${a.byPart[pt.id].total}` : '').join(' · ')}</small>` : ''}${a.autoSubmitted ? '<br><small class="muted">auto-submitted</small>' : ''}` : '<span class="tag t-late">In progress</span>'}</td>
       <td data-label="Time used">${a.submittedAt ? Math.round((new Date(a.submittedAt) - new Date(a.startedAt)) / 60000) + ' min' : `until ${fmt(a.deadline)}`}</td>
       <td data-label="Integrity">${(a.focusLost || 0) ? `<span class="tag ${a.focusLost > 3 ? 't-closed' : 't-late'}">left page ${a.focusLost}×</span>` : '<span class="tag t-done">OK</span>'}${(a.events || []).some((x) => ['copy', 'paste', 'print', 'devtools', 'contextmenu'].includes(x.type)) ? ' <span class="tag t-late">copy/print attempts</span>' : ''}${a.resumes ? ` <small class="muted">resumed ${a.resumes}×</small>` : ''}</td>
-      <td><div class="row"><button data-view="${a.id}">Answers</button><button class="bad" data-del="${a.id}">Reset</button></div></td></tr>`).join('') || '<tr><td class="muted">No attempts yet.</td></tr>'}</table></div></div>
-  <div class="card"><h3>Questions, key and item analysis</h3>
+      <td><div class="row"><button data-view="${a.id}" data-free>Answers</button><button class="bad" data-del="${a.id}">Reset</button></div></td></tr>`).join('') || '<tr><td class="muted">No attempts yet.</td></tr>'}</table></div></div>
+  <div class="card" data-lock><h3>Questions, key and item analysis</h3>
     <p class="muted">Difficulty = share answering correctly. Discrimination = upper 27% minus lower 27% (≥0.3 good, &lt;0.2 poor, negative = check the key). Changing the key or excluding a question re-grades everyone immediately.</p>
     <div class="list">${e.items.map((it, n) => { const x = an[it.id] || {}; return `<div class="tile ${it.excluded ? 'ex-off' : ''}">
       <div class="row" style="justify-content:space-between"><b>${n + 1}. ${it.group ? `<small class="muted">[${it.group}]</small> ` : ''}${esc(it.text)}</b>${it.excluded ? '<span class="tag t-closed">Excluded</span>' : ''}</div>
@@ -1055,6 +1087,7 @@ async function viewExamAdmin(eid) {
   if ($('#rvc')) $('#rvc').onclick = () => navigator.clipboard?.writeText(`${location.origin}/#review/${e.id}/${e.reviewToken}`).then(() => { $('#rvc').textContent = 'Copied ✓'; });
   $('#es').onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target;
+    if ((d.state === 'open' || d.attempts.length) && !confirm(`${d.state === 'open' ? 'The exam is open now' : `${d.attempts.length} trainee(s) have already sat it`}. Save these settings anyway?`)) return;
     try { await api('admin/exams/' + eid, { body: { openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), durationMin: +f.durationMin.value, password: f.password.value, passMark: f.passMark.value, roster: f.roster.value } }); route(); }
     catch (e2) { errBox(e2); }
   };
@@ -1076,6 +1109,7 @@ async function viewExamAdmin(eid) {
     const csv = '﻿' + rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
     const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = `${e.id}-results.csv`; link.click();
   };
+  applyLock();
 }
 
 // ---------- Routing ----------

@@ -367,3 +367,8 @@ button.big{padding:14px;font-size:1.1rem}
 .sug[hidden]{display:none}
 .res-parts{display:grid;gap:6px;width:100%}.res-parts div{display:flex;justify-content:space-between;background:var(--acs);border-radius:10px;padding:8px 12px}
 .rv-part{margin:18px 0 0;color:var(--ac)}
+
+/* Admin edit lock */
+.lockbar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#eef1f2;border:1px solid var(--ln);border-radius:12px;padding:10px 12px;font-size:15px}
+.lockbar.open{background:#fbefd9;border-color:#e8b25a;color:#5a3b00}
+.locked input,.locked select,.locked textarea{background:var(--bg)}
