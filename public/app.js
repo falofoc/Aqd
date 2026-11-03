@@ -12,7 +12,7 @@ async function api(path, opts = {}) {
   if (body && !(body instanceof Blob)) { body = JSON.stringify(body); headers['Content-Type'] = 'application/json'; }
   const r = await fetch('/api/' + path, { method: opts.method || (body ? 'POST' : 'GET'), headers, body });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.message || 'Error');
+  if (!r.ok) throw Object.assign(new Error(data.message || 'Error'), { status: r.status });
   return data;
 }
 
@@ -828,8 +828,8 @@ async function viewExam(eid) {
       const r = await api(`exam/${eid}/start`, { body });
       if (body.scfhs) examStore(eid, { name: body.name, scfhs: body.scfhs });
       clearInterval(gt);
-      if (r.submitted) return showResult(r, ar);
-      runExam(eid, r, ar);
+      if (r.submitted) return showResult(r);
+      runExam(eid, r);
     } catch (e) { errBox(ar ? arMsg(e.message) : e); btn.disabled = false; btn.textContent = label; }
   };
 }
@@ -837,37 +837,21 @@ async function viewExam(eid) {
 const picked = (q, oid) => (Array.isArray(window.__ans?.[q.id]) ? window.__ans[q.id].includes(oid) : window.__ans?.[q.id] === oid);
 
 const partShort = (t) => String(t || '').split(' — ')[0] || 'this part';
-// Arabic interface for exams taken by listed trainees (questions stay in English).
-const AR_ORD = ['الأول', 'الثاني', 'الثالث', 'الرابع'];
-const AR_SUBJ = { biostatistics: 'الإحصاء الحيوي', epidemiology: 'علم الوبائيات' };
-const arPart = (t) => {
-  const m = String(t || '').match(/^Part\s*(\d+)\s*—\s*(.+)$/i);
-  if (!m) return String(t || '');
-  return `الجزء ${AR_ORD[m[1] - 1] || m[1]} — ${AR_SUBJ[m[2].trim().toLowerCase()] || m[2]}`;
-};
-const arPartShort = (t) => arPart(t).split(' — ')[0];
+// Arabic messages for the entry page of exams with a trainee list.
 const AR_MSG = [
   [/incorrect exam password/i, 'كلمة مرور الاختبار غير صحيحة.'],
   [/has not opened yet/i, 'الاختبار لم يُفتح بعد.'],
   [/about to close/i, 'الاختبار على وشك الإغلاق، لا يمكن البدء الآن.'],
   [/exam is closed/i, 'الاختبار مغلق.'],
-  [/already been submitted/i, 'تم تسليم الاختبار مسبقاً.'],
-  [/part is finished/i, 'هذا الجزء انتهى ولا يمكن تعديله.'],
-  [/time is up/i, 'انتهى الوقت.'],
-  [/session was not found/i, 'لم نجد جلسة اختبارك. أدخل بياناتك مرة أخرى لتكمل.'],
   [/different name/i, 'رقم الهوية هذا له محاولة باسم آخر. راجع المشرف.'],
-  [/last part/i, 'هذا آخر جزء.'],
-  [/invalid answer/i, 'إجابة غير صالحة.'],
-  [/fetch|network|failed/i, 'مشكلة في الاتصال بالإنترنت. حاول مرة أخرى.'],
+  [/fetch|network|load failed/i, 'مشكلة في الاتصال بالإنترنت. حاول مرة أخرى.'],
 ];
 const arMsg = (m) => { const hit = AR_MSG.find(([re]) => re.test(String(m || ''))); return hit ? hit[1] : String(m || ''); };
+// Network trouble (no answer, or a server error) is retried; a refusal (4xx) is final.
+const netErr = (e) => !e.status || e.status >= 500 || e.status === 408 || e.status === 429;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function runExam(eid, st, ar = false) {
-  const T = (en, arText) => (ar ? arText : en);
-  const pT = (t) => (ar ? arPart(t) : t), pS = (t) => (ar ? arPartShort(t) : partShort(t));
-  const M = (m) => (ar ? arMsg(m) : m);
-  const nQ = (k) => (ar ? (k === 1 ? 'سؤال واحد لم تتم الإجابة عليه.' : k === 2 ? 'سؤالان لم تتم الإجابة عليهما.' : `${k} أسئلة لم تتم الإجابة عليها.`) : `${k} question${k > 1 ? 's are' : ' is'} not answered.`);
-  const nF = (k) => (ar ? `${k} معلَّم للمراجعة. ` : `${k} flagged for review. `);
+function runExam(eid, st) {
   let qs = st.questions, part = st.part || { index: 0, count: 1, title: '', next: null };
   const ans = { ...st.answers }, flagged = new Set();
   window.__ans = ans;
@@ -877,38 +861,52 @@ function runExam(eid, st, ar = false) {
   const mark = encodeURIComponent(`${st.name}`);
   app.innerHTML = `<div class="exam" id="exam">
     <div class="ex-wm" style="--wm:'${esc(st.name).replace(/'/g, '')}'"></div>
-    <header class="ex-bar" ${ar ? 'dir="rtl"' : ''}><div class="ex-t"><b id="ptitle">${esc(part.title ? pT(part.title) : st.title)}</b><small>${esc(st.name)}</small></div>
-      <div class="ex-timer" id="tm" dir="ltr">--:--</div>
-      <button class="pri" id="fin">${part.next ? T('Finish part', 'إنهاء') : T('Submit', 'تسليم')}</button></header>
+    <header class="ex-bar"><div class="ex-t"><b id="ptitle">${esc(part.title || st.title)}</b><small>${esc(st.name)}</small></div>
+      <div class="ex-timer" id="tm">--:--</div>
+      <button class="pri" id="fin">${part.next ? 'Finish part' : 'Submit'}</button></header>
     <div class="ex-prog"><i id="pg"></i></div>
-    <div id="ex-warn" ${ar ? 'dir="rtl"' : ''}></div>
+    <div id="ex-warn"></div>
     <main class="ex-main"><div id="qbox"></div>
-      <div class="ex-nav" ${ar ? 'dir="rtl"' : ''}><button id="prev">${T('← Previous', '→ السابق')}</button><button id="flag">${T('⚑ Flag', '⚑ تعليم')}</button><button class="pri" id="next">${T('Next →', 'التالي ←')}</button></div>
-      <div class="ex-grid" id="grid" dir="ltr"></div><p class="muted ex-save" id="sv" ${ar ? 'dir="rtl"' : ''}></p></main></div>`;
+      <div class="ex-nav"><button id="prev">← Previous</button><button id="flag">⚑ Flag</button><button class="pri" id="next">Next →</button></div>
+      <div class="ex-grid" id="grid"></div><p class="muted ex-save" id="sv"></p></main></div>`;
   void mark;
   const send = (path, body) => api('exam/attempt/' + path, { body: { token: st.token, ...body } });
-  // Answers are saved one after another, in the order chosen; a failed save is retried, and Submit waits for all of them.
-  let seq = 0, queue = Promise.resolve(), pending = 0;
-  const saveAnswer = (itemId, optionId) => {
-    const n = ++seq; pending++;
-    $('#sv').textContent = T('Saving…', 'جارٍ الحفظ…');
+  // Works through short connection losses without alarming the trainee: answers are kept on the device
+  // (survives a reload), queued in order and retried until the server has them; Submit waits for all of them.
+  const LS = 'exam-q:' + st.token;
+  const lsGet = () => { try { return JSON.parse(localStorage.getItem(LS)) || {}; } catch { return {}; } };
+  const lsSet = (v) => { try { localStorage.setItem(LS, JSON.stringify(v)); } catch {} };
+  let backup = lsGet();
+  let seq = Math.max(Date.now(), backup.seq || 0), queue = Promise.resolve(), pending = 0;
+  let kick = null; // resolves the current retry wait early when the connection comes back
+  const pause = (ms) => new Promise((r) => { const t = setTimeout(r, ms); kick = () => { clearTimeout(t); r(); }; });
+  const onOnline = () => kick && kick();
+  window.addEventListener('online', onOnline);
+  // Keep trying while the network is the problem; stop on a real refusal (time up, submitted, part closed).
+  const persist = async (fn) => { for (let n = 0; ; n++) { try { return await fn(); } catch (e) { if (!netErr(e)) throw e; await pause(Math.min(1000 * (n + 1), 5000)); } } };
+  const saveAnswer = (itemId, optionId, n = ++seq) => {
+    pending++;
+    backup = { seq, pend: { ...(backup.pend || {}), [itemId]: { optionId, seq: n } } }; lsSet(backup);
+    $('#sv').textContent = 'Saved ✓';
     queue = queue.then(async () => {
-      for (let tryNo = 0; ; tryNo++) {
-        try { await send('answer', { itemId, optionId, seq: n }); break; }
-        catch (e) { if (/time is up|submitted/i.test(e.message) || tryNo >= 5) { $('#sv').textContent = T('Not saved: ', 'لم تُحفظ: ') + M(e.message); break; } $('#sv').textContent = T('Connection problem — retrying…', 'مشكلة في الاتصال — نعيد المحاولة…'); await new Promise((r) => setTimeout(r, 1500 * (tryNo + 1))); }
-      }
+      try { await persist(() => send('answer', { itemId, optionId, seq: n })); } catch {}
+      if (backup.pend?.[itemId]?.seq === n) { delete backup.pend[itemId]; lsSet(backup); }
       pending--;
-      if (!pending) { const el = $('#sv'); if (el) el.textContent = T('All answers saved ✓', 'كل الإجابات محفوظة ✓'); }
     });
     return queue;
   };
+  // Answers chosen before a reload that had not reached the server yet are restored and sent.
+  for (const [itemId, v] of Object.entries(backup.pend || {})) if (qs.some((q) => q.id === itemId)) { if (v.optionId) ans[itemId] = v.optionId; else delete ans[itemId]; saveAnswer(itemId, v.optionId, v.seq); }
+  // Images (epidemic curves) are loaded up front so they show even if the connection drops later.
+  const preload = () => qs.forEach((q) => (q.images || []).forEach((src) => { const im = new Image(); im.src = src; }));
+  preload();
   const draw = () => {
     const q = qs[cur];
     const ctx = q.group && (cur === 0 || qs[cur - 1].group !== q.group || true);
-    $('#qbox').innerHTML = `<p class="kicker" ${ar ? 'dir="rtl"' : ''}>${T(`Question ${cur + 1} of ${qs.length}`, `السؤال ${cur + 1} من ${qs.length}`)}${flagged.has(q.id) ? T(' · ⚑ flagged', ' · ⚑ معلَّم') : ''}</p>
+    $('#qbox').innerHTML = `<p class="kicker">Question ${cur + 1} of ${qs.length}${flagged.has(q.id) ? ' · ⚑ flagged' : ''}</p>
       ${ctx && q.stem ? `<div class="ex-stem">${esc(q.stem)}${q.images ? `<div class="ex-imgs">${q.images.map((s) => `<img src="${s}" alt="Epidemic curve" draggable="false">`).join('')}</div>` : ''}</div>` : ''}
       <h2 class="ex-q">${esc(q.text)}</h2>
-      ${q.multi ? T('<p class="ex-multi">☑ Select <b>all</b> correct answers — this question has more than one. It counts only if you choose exactly the right ones.</p>', '<p class="ex-multi" dir="rtl">☑ اختر <b>كل</b> الإجابات الصحيحة — لهذا السؤال أكثر من إجابة، ولا يُحتسب إلا إذا اخترت الصحيحة كلها بالضبط.</p>') : ''}
+      ${q.multi ? '<p class="ex-multi">☑ Select <b>all</b> correct answers — this question has more than one. It counts only if you choose exactly the right ones.</p>' : ''}
       ${q.table ? `<div class="tw"><table class="ex-table"><tr>${q.table.head.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${q.table.rows.map((r) => `<tr>${r.map((c, i) => i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`).join('')}</tr>`).join('')}</table></div>` : ''}
       <div class="ex-opts ${q.multi ? 'multi' : ''}">${q.options.map((o, i) => `<button class="ex-opt ${picked(q, o.id) ? 'on' : ''}" data-o="${o.id}"><span>${q.multi ? (picked(q, o.id) ? '✓' : '') : 'ABCDEFGH'[i]}</span>${q.multi ? `<b class="ex-l">${'ABCDEFGH'[i]}.</b> ` : ''}${esc(o.text)}</button>`).join('')}</div>`;
     $('#qbox').querySelectorAll('.ex-opt').forEach((b) => b.onclick = async () => {
@@ -923,7 +921,7 @@ function runExam(eid, st, ar = false) {
       saveAnswer(q.id, oid);
     });
     $('#prev').disabled = cur === 0;
-    $('#next').textContent = cur === qs.length - 1 ? (part.next ? T(`Finish ${partShort(part.title)} →`, `إنهاء ${pS(part.title)} ←`) : T('Review & submit', 'مراجعة وتسليم')) : T('Next →', 'التالي ←');
+    $('#next').textContent = cur === qs.length - 1 ? (part.next ? `Finish ${partShort(part.title)} →` : 'Review & submit') : 'Next →';
     $('#flag').classList.toggle('on', flagged.has(q.id));
     const n = Object.keys(ans).length;
     $('#pg').style.width = (n / qs.length * 100) + '%';
@@ -935,40 +933,40 @@ function runExam(eid, st, ar = false) {
   $('#flag').onclick = () => { const id = qs[cur].id; flagged.has(id) ? flagged.delete(id) : flagged.add(id); draw(); };
   const submit = async (auto) => {
     if (done) return; done = true; cleanup();
-    app.innerHTML = `<div class="exam-gate"><div class="eg-card" ${ar ? 'dir="rtl"' : ''}><h1>${T('Submitting…', 'جارٍ التسليم…')}</h1><p class="muted">${T('Making sure all your answers are saved.', 'نتأكد من حفظ كل إجاباتك.')}</p></div></div>`;
-    try { await queue; const r = await send('submit', {}); showResult({ ...r, autoSubmitted: r.autoSubmitted || auto }, ar); }
-    catch (e) { app.innerHTML = `<div class="exam-gate"><div class="eg-card" ${ar ? 'dir="rtl"' : ''}><div class="err">${esc(M(e.message))}</div><p>${T('Your saved answers are kept. Enter your details again to continue.', 'إجاباتك المحفوظة باقية. أدخل بياناتك مرة أخرى لتكمل.')}</p><a class="btn pri" href="#exam/${eid}">${T('Continue', 'متابعة')}</a></div></div>`; }
+    app.innerHTML = '<div class="exam-gate"><div class="eg-card"><h1>Submitting…</h1><p class="muted">Making sure all your answers are saved. Please keep this page open.</p></div></div>';
+    try { await queue; const r = await persist(() => send('submit', {})); try { localStorage.removeItem(LS); } catch {} showResult({ ...r, autoSubmitted: r.autoSubmitted || auto }); }
+    catch (e) { app.innerHTML = `<div class="exam-gate"><div class="eg-card"><div class="err">${esc(e.message)}</div><p>Your saved answers are kept. Enter your details again to see your result.</p><a class="btn pri" href="#exam/${eid}">Continue</a></div></div>`; }
   };
   // Finishing a part locks it: its answers can no longer be changed.
   const goNextPart = async () => {
-    $('#dlgBody').innerHTML = `<h2>${T('Saving your answers…', 'جارٍ حفظ إجاباتك…')}</h2>`;
+    $('#dlgBody').innerHTML = '<h2>Saving your answers…</h2>';
     try {
       await queue;
-      const r = await send('next-part', {});
-      qs = r.questions; part = r.part; cur = 0; flagged.clear();
+      const r = await persist(() => send('next-part', {}));
+      qs = r.questions; part = r.part; cur = 0; flagged.clear(); preload();
       Object.assign(ans, r.answers || {});
-      $('#ptitle').textContent = pT(part.title); $('#fin').textContent = part.next ? T('Finish part', 'إنهاء') : T('Submit', 'تسليم');
+      $('#ptitle').textContent = part.title; $('#fin').textContent = part.next ? 'Finish part' : 'Submit';
       $('#dlg').close();
-      warn(T(`${part.title} has started. ${partShort(partsDoneTitle)} is closed.`, `بدأ ${pT(part.title)}. ${pS(partsDoneTitle)} أُغلق.`));
+      warn(`${part.title} has started. ${partShort(partsDoneTitle)} is closed.`);
       draw(); window.scrollTo(0, 0);
-    } catch (e) { $('#dlgBody').innerHTML = `<div class="err">${esc(M(e.message))}</div><div class="bar"><button id="x">${T('Close', 'إغلاق')}</button></div>`; $('#x').onclick = () => $('#dlg').close(); }
+    } catch (e) { $('#dlgBody').innerHTML = `<div class="err">${esc(e.message)}</div><div class="bar"><button id="x">Close</button></div>`; $('#x').onclick = () => $('#dlg').close(); }
   };
   let partsDoneTitle = '';
   const confirmSubmit = () => {
     const left = qs.filter((q) => !ans[q.id]).length;
     if (part.next) {
-      $('#dlgBody').innerHTML = `<div ${ar ? 'dir="rtl"' : ''}><h2>${T(`Finish ${esc(partShort(part.title))}?`, `إنهاء ${esc(pS(part.title))}؟`)}</h2>
-        <p>${left ? `<b>${nQ(left)}</b> ` : T('All questions in this part are answered. ', 'أجبت على كل أسئلة هذا الجزء. ')}${flagged.size ? nF(flagged.size) : ''}</p>
-        <p class="warn">${T(`<b>You cannot come back to ${esc(partShort(part.title))}</b> after moving on. The timer keeps running for the whole exam.`, `<b>لا يمكنك الرجوع إلى ${esc(pS(part.title))}</b> بعد الانتقال. والوقت مستمر للاختبار كله.`)}</p>
-        <div class="row bar"><button class="pri" id="ok">${T(`Go to ${esc(partShort(part.next))} →`, `الانتقال إلى ${esc(pS(part.next))} ←`)}</button><button id="x">${T('Keep working', 'متابعة الحل')}</button></div></div>`;
+      $('#dlgBody').innerHTML = `<h2>Finish ${esc(partShort(part.title))}?</h2>
+        <p>${left ? `<b>${left} question${left > 1 ? 's are' : ' is'} not answered.</b> ` : 'All questions in this part are answered. '}${flagged.size ? `${flagged.size} flagged for review. ` : ''}</p>
+        <p class="warn"><b>You cannot come back to ${esc(partShort(part.title))}</b> after moving on. The timer keeps running for the whole exam.</p>
+        <div class="row bar"><button class="pri" id="ok">Go to ${esc(partShort(part.next))} →</button><button id="x">Keep working</button></div>`;
       $('#x').onclick = () => $('#dlg').close();
       $('#ok').onclick = () => { partsDoneTitle = part.title; goNextPart(); };
       $('#dlg').showModal();
       return;
     }
-    $('#dlgBody').innerHTML = `<div ${ar ? 'dir="rtl"' : ''}><h2>${T('Submit the exam?', 'تسليم الاختبار؟')}</h2>
-      <p>${left ? `<b>${nQ(left)}</b> ` : T('All questions are answered. ', 'أجبت على كل الأسئلة. ')}${flagged.size ? nF(flagged.size) : ''}${T('You cannot change your answers after submitting.', 'لا يمكنك تعديل إجاباتك بعد التسليم.')}</p>
-      <div class="row bar"><button class="pri" id="ok">${T('Submit now', 'سلّم الآن')}</button><button id="x">${T('Keep working', 'متابعة الحل')}</button></div></div>`;
+    $('#dlgBody').innerHTML = `<h2>Submit the exam?</h2>
+      <p>${left ? `<b>${left} question${left > 1 ? 's are' : ' is'} not answered.</b> ` : 'All questions are answered. '}${flagged.size ? `${flagged.size} flagged for review. ` : ''}You cannot change your answers after submitting.</p>
+      <div class="row bar"><button class="pri" id="ok">Submit now</button><button id="x">Keep working</button></div>`;
     $('#x').onclick = () => $('#dlg').close();
     $('#ok').onclick = () => { $('#dlg').close(); submit(false); };
     $('#dlg').showModal();
@@ -979,16 +977,16 @@ function runExam(eid, st, ar = false) {
     const s = Math.max(0, Math.round((deadline - Date.now()) / 1000));
     $('#tm').textContent = `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
     $('#tm').classList.toggle('low', s <= 300);
-    if (s <= 300 && !warned5) { warned5 = true; warn(T('5 minutes left.', 'باقي 5 دقائق.')); }
+    if (s <= 300 && !warned5) { warned5 = true; warn('5 minutes left.'); }
     if (s === 0) submit(true);
   };
   // anti-cheating: record leaving the page, copying, printing; block copy, right-click, selection
   let lost = 0;
   const warn = (m) => { $('#ex-warn').innerHTML = `<div class="ex-alert">${esc(m)}</div>`; clearTimeout(warn.t); warn.t = setTimeout(() => { const w = $('#ex-warn'); if (w) w.innerHTML = ''; }, 6000); };
   const ev = (type) => send('event', { type }).catch(() => {});
-  const onVis = () => { if (document.hidden) { lost++; ev('hidden'); } else warn(T(`You left the exam page (${lost}×). This is recorded and reported.`, `خرجت من صفحة الاختبار (${lost} مرة). هذا يُسجَّل ويُرفع للبرنامج.`)); };
+  const onVis = () => { if (document.hidden) { lost++; ev('hidden'); } else warn(`You left the exam page (${lost}×). This is recorded and reported.`); };
   const onBlur = () => { if (!document.hidden) ev('blur'); };
-  const stop = (type) => (e) => { e.preventDefault(); ev(type); warn(T('Copying and right-click are disabled during the exam.', 'النسخ والزر الأيمن معطّلان أثناء الاختبار.')); };
+  const stop = (type) => (e) => { e.preventDefault(); ev(type); warn('Copying and right-click are disabled during the exam.'); };
   const onCopy = stop('copy'), onCtx = stop('contextmenu'), onPaste = stop('paste');
   const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && ['p', 's', 'c', 'u'].includes(e.key.toLowerCase())) { e.preventDefault(); ev(e.key.toLowerCase() === 'p' ? 'print' : 'copy'); } if (e.key === 'F12') { e.preventDefault(); ev('devtools'); } };
   const onUnload = (e) => { e.preventDefault(); e.returnValue = ''; };
@@ -1009,35 +1007,35 @@ function runExam(eid, st, ar = false) {
     document.removeEventListener('paste', onPaste); document.removeEventListener('contextmenu', onCtx);
     document.removeEventListener('keydown', onKey); window.removeEventListener('beforeunload', onUnload);
     document.removeEventListener('fullscreenchange', onFs);
+    window.removeEventListener('online', onOnline);
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   }
   examCleanup = cleanup;
   draw(); tick();
 }
 
-function showResult(r, ar = false) {
+function showResult(r) {
   if (examCleanup) { examCleanup(); examCleanup = null; }
   if (lockTimer) { clearInterval(lockTimer); lockTimer = null; }
   if (r.scoreHidden) {
-    app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res ar-card" dir="rtl">
-      <span class="kicker">${r.autoSubmitted ? 'سُلِّم الاختبار تلقائياً عند انتهاء الوقت' : 'تم تسليم الاختبار'}</span>
+    app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res">
+      <span class="kicker">${r.autoSubmitted ? 'Exam submitted automatically when time ran out' : 'Exam submitted'}</span>
       <h1>${esc(r.name || '')}</h1>
       <div class="res-done">✓</div>
-      <p class="res-score">تم استلام إجاباتك بنجاح.</p>
-      <p class="muted">النتائج يعلنها البرنامج لاحقاً. شكراً لك.</p>
-      <a class="btn" href="#">العودة للموقع</a></div></div>`;
+      <p class="res-score">Your answers have been received.</p>
+      <p class="muted">Results will be announced by the program. Thank you.</p>
+      <a class="btn" href="#">Back to the site</a></div></div>`;
     return;
   }
-  const T = (en, arText) => (ar ? arText : en);
-  const band = r.passed === true ? `<span class="tag t-done">${T('Passed', 'ناجح')}</span>` : r.passed === false ? `<span class="tag t-closed">${T('Below the pass mark', 'أقل من درجة النجاح')}</span>` : '';
-  app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res ${ar ? 'ar-card' : ''}" ${ar ? 'dir="rtl"' : ''}>
-    <span class="kicker">${r.autoSubmitted ? T('Exam submitted automatically when time ran out', 'سُلِّم الاختبار تلقائياً عند انتهاء الوقت') : T('Exam submitted', 'تم تسليم الاختبار')}</span>
+  const band = r.passed === true ? '<span class="tag t-done">Passed</span>' : r.passed === false ? '<span class="tag t-closed">Below the pass mark</span>' : '';
+  app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res">
+    <span class="kicker">Exam submitted${r.autoSubmitted ? ' automatically when time ran out' : ''}</span>
     <h1>${esc(r.name || '')}</h1>
     <div class="s-score res-ring" style="--p:${r.percent}"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52"/><circle class="arc" cx="60" cy="60" r="52" style="stroke-dashoffset:${327 - 327 * r.percent / 100}"/></svg><b>${r.percent}</b></div>
-    <p class="res-score">${T('Score', 'الدرجة')}: <b dir="ltr">${r.percent} / 100</b></p>
-    ${r.byPart && r.parts ? `<div class="res-parts">${r.parts.map((p) => r.byPart[p.id] ? `<div><span>${esc(ar ? arPart(p.title) : p.title)}</span><b dir="ltr">${r.byPart[p.id].score}/${r.byPart[p.id].total}</b></div>` : '').join('')}</div>` : ''}<p class="muted">${T(`${r.score} correct out of ${r.total} questions`, `${r.score} إجابة صحيحة من ${r.total} سؤالاً`)}</p>${band}
-    <p class="muted">${T('The correct answers are not shown. The program will review the results.', 'الإجابات الصحيحة لا تُعرض. البرنامج سيراجع النتائج.')}</p>
-    <a class="btn" href="#">${T('Back to the site', 'العودة للموقع')}</a></div></div>`;
+    <p class="res-score">Score: <b>${r.percent} / 100</b></p>
+    ${r.byPart && r.parts ? `<div class="res-parts">${r.parts.map((p) => r.byPart[p.id] ? `<div><span>${esc(p.title)}</span><b>${r.byPart[p.id].score}/${r.byPart[p.id].total}</b></div>` : '').join('')}</div>` : ''}<p class="muted">${r.score} correct out of ${r.total} questions</p>${band}
+    <p class="muted">The correct answers are not shown. The program will review the results.</p>
+    <a class="btn" href="#">Back to the site</a></div></div>`;
 }
 
 const isKey = (it, oid) => (Array.isArray(it.answer) ? it.answer.includes(oid) : it.answer === oid);
@@ -1110,7 +1108,7 @@ async function viewExamAdmin(eid) {
     ${d.attempts.map((a) => `<tr><td class="ttl">${esc(a.name)}</td><td data-label="ID">${esc(a.scfhs)}</td>
       <td class="n" data-label="Score">${a.submittedAt ? `<b>${a.score}/${a.total}</b> · ${a.percent}%${a.byPart && e.parts ? `<br><small class="muted">${e.parts.map((pt) => a.byPart[pt.id] ? `${esc(partShort(pt.title))}: ${a.byPart[pt.id].score}/${a.byPart[pt.id].total}` : '').join(' · ')}</small>` : ''}${a.autoSubmitted ? '<br><small class="muted">auto-submitted</small>' : ''}` : '<span class="tag t-late">In progress</span>'}</td>
       <td data-label="Time used">${a.submittedAt ? Math.round((new Date(a.submittedAt) - new Date(a.startedAt)) / 60000) + ' min' : `until ${fmt(a.deadline)}`}</td>
-      <td data-label="Integrity">${(a.focusLost || 0) ? `<span class="tag ${a.focusLost > 3 ? 't-closed' : 't-late'}">left page ${a.focusLost}×</span>` : '<span class="tag t-done">OK</span>'}${(a.events || []).some((x) => ['copy', 'paste', 'print', 'devtools', 'contextmenu'].includes(x.type)) ? ' <span class="tag t-late">copy/print attempts</span>' : ''}${a.resumes ? ` <small class="muted">resumed ${a.resumes}×</small>` : ''}</td>
+      <td data-label="Integrity">${(a.focusLost || 0) ? `<span class="tag ${a.focusLost > 3 ? 't-closed' : 't-late'}">left page ${a.focusLost}×</span>` : '<span class="tag t-done">OK</span>'}${(a.events || []).some((x) => ['copy', 'paste', 'print', 'devtools', 'contextmenu'].includes(x.type)) ? ' <span class="tag t-late">copy/print attempts</span>' : ''}${a.resumes ? ` <small class="muted">resumed ${a.resumes}×</small>` : ''}${a.lateSync ? ` <small class="muted" title="Answers saved on the device during a connection drop and received after the time limit">${a.lateSync} answer(s) synced late</small>` : ''}</td>
       <td><div class="row"><button data-view="${a.id}" data-free>Answers</button><button class="bad" data-del="${a.id}">Reset</button></div></td></tr>`).join('') || '<tr><td class="muted">No attempts yet.</td></tr>'}</table></div></div>
   <div class="card" data-lock><h3>Questions, key and item analysis</h3>
     <p class="muted">Difficulty = share answering correctly. Discrimination = upper 27% minus lower 27% (≥0.3 good, &lt;0.2 poor, negative = check the key). Changing the key or excluding a question re-grades everyone immediately.</p>

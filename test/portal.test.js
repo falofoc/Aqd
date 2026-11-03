@@ -397,3 +397,34 @@ test('exam roster: only listed trainees with the matching national ID can start'
     assert.equal((await call('admin/exams/t1', { cookie: admin, body: { roster: 'just a name' } })).status, 400);
   } finally { srv.close(); }
 });
+
+test('answers held offline are accepted shortly after the deadline and flagged', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, { body, cookie } = {}) => {
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', body: body && JSON.stringify(body), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) } });
+    return { status: r.status, data: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  try {
+    const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
+    const now = Date.now();
+    await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(now - 36e5).toISOString(), closeAt: new Date(now + 36e5).toISOString() } });
+    const st = (await call('exam/t1/start', { body: { name: 'Sara Ali Alqahtani', scfhs: '1000000098', password: 'AFHSR26' } })).data;
+    const { exam } = (await call('admin/exams/t1', { cookie: admin })).data;
+    const b = exam.items.filter((x) => x.part === 'bio');
+    // time ran out 2 minutes ago, but the answer was held by a lost connection
+    await call('admin/exams/t1', { cookie: admin, body: { closeAt: new Date(Date.now() - 2 * 6e4).toISOString() } });
+    assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: b[0].id, optionId: b[0].answer, seq: 1 } })).status, 200);
+    let adm = (await call('admin/exams/t1', { cookie: admin })).data;
+    assert.equal(adm.attempts[0].submittedAt, undefined, 'not auto-submitted yet');
+    assert.equal(adm.attempts[0].lateSync, 1);
+    // well past the limit: refused, and the attempt is submitted with what arrived
+    await call('admin/exams/t1', { cookie: admin, body: { closeAt: new Date(Date.now() - 11 * 6e4).toISOString() } });
+    assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: b[1].id, optionId: b[1].answer, seq: 2 } })).status, 409);
+    adm = (await call('admin/exams/t1', { cookie: admin })).data;
+    assert.ok(adm.attempts[0].submittedAt);
+    assert.equal(adm.attempts[0].score, 1);
+  } finally { srv.close(); }
+});

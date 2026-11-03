@@ -373,4 +373,3 @@ button.big{padding:14px;font-size:1.1rem}
 .lockbar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#eef1f2;border:1px solid var(--ln);border-radius:12px;padding:10px 12px;font-size:15px}
 .lockbar.open{background:#fbefd9;border-color:#e8b25a;color:#5a3b00}
 .locked input,.locked select,.locked textarea{background:var(--bg)}
-.ex-bar #fin{white-space:nowrap}
