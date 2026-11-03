@@ -803,8 +803,8 @@ function showResult(r) {
   app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res">
     <span class="kicker">Exam submitted${r.autoSubmitted ? ' automatically when time ran out' : ''}</span>
     <h1>${esc(r.name || '')}</h1>
-    <div class="s-score res-ring" style="--p:${r.percent}"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52"/><circle class="arc" cx="60" cy="60" r="52" style="stroke-dashoffset:${327 - 327 * r.percent / 100}"/></svg><b>${r.percent}%</b></div>
-    <p class="res-score"><b>${r.score}</b> correct out of <b>${r.total}</b></p>${band}
+    <div class="s-score res-ring" style="--p:${r.percent}"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52"/><circle class="arc" cx="60" cy="60" r="52" style="stroke-dashoffset:${327 - 327 * r.percent / 100}"/></svg><b>${r.percent}</b></div>
+    <p class="res-score">Score: <b>${r.percent} / 100</b></p><p class="muted">${r.score} correct out of ${r.total} questions</p>${band}
     <p class="muted">The correct answers are not shown. The program will review the results.</p>
     <a class="btn" href="#">Back to the site</a></div></div>`;
 }

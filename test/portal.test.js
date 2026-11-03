@@ -309,7 +309,7 @@ test('exam reviewer link: secret, read-only, revocable', async () => {
     const { token } = (await call('admin/exams/t1/review-link', { cookie: admin, body: {} })).data;
     const rv = await call('exam/t1/review/' + token);
     assert.equal(rv.status, 200);
-    assert.equal(rv.data.items.length, 28); // removed questions stay listed for the reviewer, marked as removed
+    assert.equal(rv.data.items.length, 26); // removed questions are not shown to the reviewer either
     assert.ok(rv.data.items.every((i) => i.answer));
     assert.ok(!JSON.stringify(rv.data).includes('AFHSR26'), 'password not exposed');
     assert.ok(!JSON.stringify((await call('exam/t1')).data).includes(token), 'token not in public info');
