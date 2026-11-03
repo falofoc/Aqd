@@ -863,6 +863,7 @@ function runExam(eid, st) {
     <div class="ex-wm" style="--wm:'${esc(st.name).replace(/'/g, '')}'"></div>
     <header class="ex-bar"><div class="ex-t"><b id="ptitle">${esc(part.title || st.title)}</b><small>${esc(st.name)}</small></div>
       <div class="ex-timer" id="tm">--:--</div>
+      <button id="calc" class="ex-calc" type="button" title="Calculator" aria-label="Calculator"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.5 6.5h7M8.5 11h.01M12 11h.01M15.5 11h.01M8.5 14.5h.01M12 14.5h.01M15.5 14.5h.01M8.5 18h.01M12 18h.01M15.5 18h.01"/></svg></button>
       <button class="pri" id="fin">${part.next ? 'Finish part' : 'Submit'}</button></header>
     <div class="ex-prog"><i id="pg"></i></div>
     <div id="ex-warn"></div>
@@ -871,6 +872,7 @@ function runExam(eid, st) {
       <div class="ex-grid" id="grid"></div><p class="muted ex-save" id="sv"></p></main></div>`;
   void mark;
   const send = (path, body) => api('exam/attempt/' + path, { body: { token: st.token, ...body } });
+  if (window.Calc) { Calc.reset(); $('#calc').onclick = () => Calc.toggle(); } else $('#calc').remove();
   // Works through short connection losses without alarming the trainee: answers are kept on the device
   // (survives a reload), queued in order and retried until the server has them; Submit waits for all of them.
   const LS = 'exam-q:' + st.token;
@@ -1008,6 +1010,7 @@ function runExam(eid, st) {
     document.removeEventListener('keydown', onKey); window.removeEventListener('beforeunload', onUnload);
     document.removeEventListener('fullscreenchange', onFs);
     window.removeEventListener('online', onOnline);
+    if (window.Calc) Calc.reset();
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   }
   examCleanup = cleanup;
