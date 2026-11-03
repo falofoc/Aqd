@@ -724,9 +724,15 @@ async function viewExam(eid) {
       <div id="eg-state"></div>
       <ul class="ticks">${rules.map((r) => `<li>${r}</li>`).join('')}</ul>
       <form id="ef" class="list">
-        <label>Full name (as in SCFHS records)<input name="name" required value="${esc(saved.name || '')}" autocomplete="name"></label>
+        ${info.roster && !(ME && ME.role === 'admin') ? `
+        <label>Exam password · كلمة مرور الاختبار<input name="password" type="password" required autocomplete="off"></label>
+        <label dir="rtl" class="ar">الاسم (بالعربي كما في القائمة)<input name="name" required autocomplete="off" list="names" placeholder="اكتب أول اسمك واختر من القائمة" disabled></label>
+        <datalist id="names"></datalist>
+        <p class="muted ar" dir="rtl" id="nhint">أدخل كلمة المرور أولاً لتظهر أسماء المختبرين.</p>
+        <label dir="rtl" class="ar">رقم الهوية<input name="nid" required inputmode="numeric" autocomplete="off" maxlength="10" placeholder="10 أرقام" disabled></label>`
+        : `<label>Full name (as in SCFHS records)<input name="name" required value="${esc(saved.name || '')}" autocomplete="name"></label>
         <label>SCFHS number<input name="scfhs" required value="${esc(saved.scfhs || '')}"></label>
-        <label>Exam password<input name="password" type="password" required autocomplete="off"></label>
+        <label>Exam password<input name="password" type="password" required autocomplete="off"></label>`}
         <label class="eg-agree"><input type="checkbox" required style="width:auto"> I will answer on my own, without help or other resources.</label>
         <div id="e"></div><button class="pri big">Start the exam</button></form>
       <a href="#exam" class="muted" style="text-align:center">← Back</a></div></div>`;
@@ -740,14 +746,33 @@ async function viewExam(eid) {
   tickGate();
   const gt = setInterval(tickGate, 1000);
   examCleanup = () => clearInterval(gt);
+  // Listed trainees: the right password unlocks name suggestions; the ID is checked on the server.
+  if (info.roster && !(ME && ME.role === 'admin')) {
+    const f = $('#ef'); let names = [], last = '';
+    const unlock = async () => {
+      const pw = f.password.value.trim();
+      if (!pw || pw === last) return; last = pw;
+      try {
+        names = (await api(`exam/${eid}/names`, { body: { password: pw } })).names;
+        $('#names').innerHTML = names.map((n) => `<option value="${esc(n)}">`).join('');
+        f.name.disabled = false; f.nid.disabled = false;
+        $('#nhint').textContent = 'اكتب أول اسمك ثم اختر اسمك الكامل من الاقتراحات، وبعده رقم هويتك.';
+        f.name.focus();
+      } catch { $('#nhint').textContent = 'كلمة المرور غير صحيحة.'; f.name.disabled = true; f.nid.disabled = true; }
+    };
+    f.password.addEventListener('change', unlock);
+    f.password.addEventListener('blur', unlock);
+    f.password.addEventListener('keyup', () => { if (f.password.value.length >= 6) unlock(); });
+    f.nid.addEventListener('input', () => { f.nid.value = f.nid.value.replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/\D/g, '').slice(0, 10); });
+  }
   $('#ef').onsubmit = async (ev) => {
     ev.preventDefault();
     const f = ev.target, btn = f.querySelector('button');
     btn.disabled = true; btn.textContent = 'Starting…';
     try {
-      const body = { name: f.name.value, scfhs: f.scfhs.value, password: f.password.value };
+      const body = { name: f.name.value, scfhs: f.scfhs?.value, nid: f.nid?.value, password: f.password.value };
       const r = await api(`exam/${eid}/start`, { body });
-      examStore(eid, { name: body.name, scfhs: body.scfhs });
+      if (body.scfhs) examStore(eid, { name: body.name, scfhs: body.scfhs });
       clearInterval(gt);
       if (r.submitted) return showResult(r);
       runExam(eid, r);
@@ -951,6 +976,9 @@ async function viewExamAdmin(eid) {
     <label>Duration (minutes)<input type="number" name="durationMin" min="5" value="${e.durationMin}"></label>
     <label>Exam password<input name="password" value="${esc(e.password)}"></label>
     <label>Pass mark % (optional)<input type="number" name="passMark" min="0" max="100" value="${e.passMark ?? ''}"></label>
+    <label style="grid-column:1/-1">Allowed trainees — one per line: name (Arabic) and national ID, or the name on one line and the ID on the next. Leave empty to allow anyone with the password.
+      <textarea name="roster" rows="8" dir="rtl" placeholder="سارة خالد العتيبي 1000000001">${esc((e.roster || []).map((x) => `${x.name} ${x.nid}`).join('\n'))}</textarea>
+      <small class="muted">${(e.roster || []).length ? `${e.roster.length} trainees on the list — only they can sit the exam (name + matching ID).` : 'No list: anyone with the password can sit the exam.'}</small></label>
     <div style="align-self:end"><button class="pri">Save settings</button></div></form><div id="e"></div></div>
   <div class="card"><div class="row" style="justify-content:space-between"><h3>Results</h3><button id="csv">Download CSV</button></div><div class="tw"><table class="stack"><tr class="hd"><th>Name</th><th>SCFHS</th><th class="n">Score</th><th>Time used</th><th>Integrity</th><th></th></tr>
     ${d.attempts.map((a) => `<tr><td class="ttl">${esc(a.name)}</td><td data-label="SCFHS">${esc(a.scfhs)}</td>
@@ -974,7 +1002,7 @@ async function viewExamAdmin(eid) {
   if ($('#rvc')) $('#rvc').onclick = () => navigator.clipboard?.writeText(`${location.origin}/#review/${e.id}/${e.reviewToken}`).then(() => { $('#rvc').textContent = 'Copied ✓'; });
   $('#es').onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target;
-    try { await api('admin/exams/' + eid, { body: { openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), durationMin: +f.durationMin.value, password: f.password.value, passMark: f.passMark.value } }); route(); }
+    try { await api('admin/exams/' + eid, { body: { openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), durationMin: +f.durationMin.value, password: f.password.value, passMark: f.passMark.value, roster: f.roster.value } }); route(); }
     catch (e2) { errBox(e2); }
   };
   app.querySelectorAll('[data-key]').forEach((s) => s.onchange = async () => { if (!confirm('Change the key and re-grade all results?')) return route(); await api(`admin/exams/${eid}/items/${s.dataset.key}`, { body: { answer: s.value } }); route(); });

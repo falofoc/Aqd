@@ -352,3 +352,6 @@ button.big{padding:14px;font-size:1.1rem}
 .fm-r li{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--ln);padding:4px 0;font-size:15px}
 .fm-r li b{white-space:nowrap}
 @media (max-width:640px){.fm-item{grid-template-columns:1fr}.fm-pick{justify-content:flex-start}}
+
+.ar{text-align:right;font-family:"IBM Plex Sans Arabic","IBM Plex Sans",sans-serif}
+.ar input{text-align:right}
