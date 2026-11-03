@@ -751,11 +751,11 @@ async function viewExam(eid) {
     'محاولة واحدة لكل متدرب. إذا انقطع الاتصال أدخل بياناتك مرة أخرى وتكمل من حيث توقفت.',
     'ترتيب الأسئلة والخيارات مختلف لكل متدرب.',
     'ابقَ في صفحة الاختبار: الخروج منها أو التنقل بين التطبيقات أو النسخ يُسجَّل ويُرفع للبرنامج.',
-    'إجاباتك تُحفظ أولاً بأول، وتظهر لك درجتك في النهاية دون الإجابات الصحيحة.'] : ['You have <b>' + info.durationMin + ' minutes</b> from the moment you start. The timer keeps running if you close the page; the exam is submitted automatically when time runs out.',
+    info.showScore ? 'إجاباتك تُحفظ أولاً بأول، وتظهر لك درجتك في النهاية دون الإجابات الصحيحة.' : 'إجاباتك تُحفظ أولاً بأول. النتائج يعلنها البرنامج لاحقاً.'] : ['You have <b>' + info.durationMin + ' minutes</b> from the moment you start. The timer keeps running if you close the page; the exam is submitted automatically when time runs out.',
     'One attempt per ID number. If your connection drops, enter your details again to continue where you stopped.',
     'Questions and choices appear in a different order for each trainee.',
     'Stay on this page: leaving it, switching apps or copying is recorded and reported to the program.',
-    'Your answers are saved as you choose them. You will see your score at the end; the correct answers are not shown.'];
+    info.showScore ? 'Your answers are saved as you choose them. You will see your score at the end; the correct answers are not shown.' : 'Your answers are saved as you choose them. Results will be announced by the program later.'];
   app.innerHTML = `<div class="exam-gate">
     <div class="eg-card ${ar ? 'ar-card' : ''}" ${ar ? 'dir="rtl"' : ''}><img src="brand/shield.png" alt="" width="48" height="56"><span class="kicker">${esc(S.board)}</span><h1>${esc(info.title)}</h1>
       <div class="eg-facts"><div><b>${info.count}</b><span>${T('questions', 'سؤال')}</span></div><div><b>${info.durationMin}</b><span>${T('minutes', 'دقيقة')}</span></div><div><b>${new Date(info.openAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Riyadh' })}</b><span>${new Date(info.openAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}–${new Date(info.closeAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}</span></div></div>
@@ -778,7 +778,7 @@ async function viewExam(eid) {
   const tickGate = () => {
     const now = Date.now(), o = new Date(info.openAt), c = new Date(info.closeAt);
     if (now < o) { const s = Math.floor((o - now) / 1000); stEl.innerHTML = `<div class="warn">${T('Opens in', 'يفتح بعد')} <b dir="ltr">${Math.floor(s / 86400) ? Math.floor(s / 86400) + ' d ' : ''}${pad(Math.floor(s / 3600) % 24)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}</b></div>`; }
-    else if (now > c) stEl.innerHTML = `<div class="err">${T('This exam is closed. If you already sat it, enter your details to see your result.', 'الاختبار مغلق. إذا كنت أديته، أدخل بياناتك لترى نتيجتك.')}</div>`;
+    else if (now > c) stEl.innerHTML = `<div class="err">${info.showScore ? T('This exam is closed. If you already sat it, enter your details to see your result.', 'الاختبار مغلق. إذا كنت أديته، أدخل بياناتك لترى نتيجتك.') : T('This exam is closed.', 'الاختبار مغلق.')}</div>`;
     else stEl.innerHTML = `<div class="box">${T('Open now — closes at', 'مفتوح الآن — يُغلق')} ${fmt(info.closeAt)}</div>`;
   };
   tickGate();
@@ -989,6 +989,16 @@ function runExam(eid, st) {
 function showResult(r) {
   if (examCleanup) { examCleanup(); examCleanup = null; }
   if (lockTimer) { clearInterval(lockTimer); lockTimer = null; }
+  if (r.scoreHidden) {
+    app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res ar-card" dir="rtl">
+      <span class="kicker">${r.autoSubmitted ? 'سُلِّم الاختبار تلقائياً عند انتهاء الوقت' : 'تم تسليم الاختبار'}</span>
+      <h1>${esc(r.name || '')}</h1>
+      <div class="res-done">✓</div>
+      <p class="res-score">تم استلام إجاباتك بنجاح.</p>
+      <p class="muted">النتائج يعلنها البرنامج لاحقاً. شكراً لك.</p>
+      <a class="btn" href="#">العودة للموقع</a></div></div>`;
+    return;
+  }
   const band = r.passed === true ? '<span class="tag t-done">Passed</span>' : r.passed === false ? '<span class="tag t-closed">Below the pass mark</span>' : '';
   app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res">
     <span class="kicker">Exam submitted${r.autoSubmitted ? ' automatically when time ran out' : ''}</span>
@@ -1061,6 +1071,7 @@ async function viewExamAdmin(eid) {
     <label>Duration (minutes)<input type="number" name="durationMin" min="5" value="${e.durationMin}"></label>
     <label>Exam password<input name="password" value="${esc(e.password)}"></label>
     <label>Pass mark % (optional)<input type="number" name="passMark" min="0" max="100" value="${e.passMark ?? ''}"></label>
+    <label class="eg-agree" style="grid-column:1/-1"><input type="checkbox" name="showScore" style="width:auto" ${e.showScore ? 'checked' : ''}> Show trainees their score — off: they only see “submitted”. Turn on later to release results; trainees then re-enter their details on the exam page to see their score.</label>
     <label style="grid-column:1/-1">Allowed trainees — one per line: name (Arabic) and national ID, or the name on one line and the ID on the next. Leave empty to allow anyone with the password.
       <textarea name="roster" rows="8" dir="rtl" placeholder="سارة خالد العتيبي 1000000001">${esc((e.roster || []).map((x) => `${x.name} ${x.nid}`).join('\n'))}</textarea>
       <small class="muted">${(e.roster || []).length ? `${e.roster.length} trainees on the list — only they can sit the exam (name + matching ID).` : 'No list: anyone with the password can sit the exam.'}</small></label>
@@ -1088,7 +1099,7 @@ async function viewExamAdmin(eid) {
   $('#es').onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target;
     if ((d.state === 'open' || d.attempts.length) && !confirm(`${d.state === 'open' ? 'The exam is open now' : `${d.attempts.length} trainee(s) have already sat it`}. Save these settings anyway?`)) return;
-    try { await api('admin/exams/' + eid, { body: { openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), durationMin: +f.durationMin.value, password: f.password.value, passMark: f.passMark.value, roster: f.roster.value } }); route(); }
+    try { await api('admin/exams/' + eid, { body: { openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), durationMin: +f.durationMin.value, password: f.password.value, passMark: f.passMark.value, showScore: f.showScore.checked, roster: f.roster.value } }); route(); }
     catch (e2) { errBox(e2); }
   };
   app.querySelectorAll('[data-key]').forEach((s) => s.onchange = async () => { if (!confirm('Change the key and re-grade all results?')) return route(); await api(`admin/exams/${eid}/items/${s.dataset.key}`, { body: { answer: s.value } }); route(); });

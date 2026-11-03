@@ -262,11 +262,20 @@ test('T1 exam: hidden answers, password, one attempt, grading, excluding a quest
     assert.equal((await ans(exam.items.find((it) => it.id === 'b1'))).status, 409);
     for (const it of exam.items.filter((x) => x.part === 'epi')) await ans(it);
     await call('exam/attempt/event', { body: { token: st.token, type: 'hidden' } });
-    const res = (await call('exam/attempt/submit', { body: { token: st.token } })).data;
+    const hid = (await call('exam/attempt/submit', { body: { token: st.token } })).data;
+    assert.equal(hid.submitted, true);
+    assert.equal(hid.scoreHidden, true, 'score hidden until released');
+    assert.equal(hid.score, undefined);
+    assert.equal(hid.percent, undefined);
+    assert.equal((await call('admin/exams/t1', { cookie: admin })).data.attempts[0].score, 51, 'admin sees it');
+    // releasing results: starting again shows the score
+    await call('admin/exams/t1', { cookie: admin, body: { showScore: true } });
+    assert.equal((await call('exam/t1')).data.showScore, true);
+    const res = (await call('exam/t1/start', { body: me })).data;
     assert.deepEqual([res.score, res.total, res.percent], [51, 51, 100]);
     assert.deepEqual([res.byPart.bio.score, res.byPart.epi.score], [25, 26]);
     assert.equal(res.answers, undefined);
-    // one attempt per SCFHS number: starting again just shows the result
+    // one attempt per ID number: starting again just shows the result
     const again = (await call('exam/t1/start', { body: me })).data;
     assert.equal(again.submitted, true);
     assert.equal(again.score, 51);
