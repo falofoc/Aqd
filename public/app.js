@@ -673,8 +673,11 @@ async function viewExam(eid) {
   };
 }
 
+const picked = (q, oid) => (Array.isArray(window.__ans?.[q.id]) ? window.__ans[q.id].includes(oid) : window.__ans?.[q.id] === oid);
+
 function runExam(eid, st) {
   const qs = st.questions, ans = { ...st.answers }, flagged = new Set();
+  window.__ans = ans;
   const deadline = new Date(st.deadline).getTime();
   let cur = qs.findIndex((q) => !ans[q.id]); if (cur < 0) cur = 0;
   let done = false, warned5 = false;
@@ -712,10 +715,16 @@ function runExam(eid, st) {
     $('#qbox').innerHTML = `<p class="kicker">Question ${cur + 1} of ${qs.length}${flagged.has(q.id) ? ' · ⚑ flagged' : ''}</p>
       ${ctx && q.stem ? `<div class="ex-stem">${esc(q.stem)}${q.images ? `<div class="ex-imgs">${q.images.map((s) => `<img src="${s}" alt="Epidemic curve" draggable="false">`).join('')}</div>` : ''}</div>` : ''}
       <h2 class="ex-q">${esc(q.text)}</h2>
+      ${q.multi ? '<p class="ex-multi">☑ Select <b>all</b> correct answers — this question has more than one. It counts only if you choose exactly the right ones.</p>' : ''}
       ${q.table ? `<div class="tw"><table class="ex-table"><tr>${q.table.head.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${q.table.rows.map((r) => `<tr>${r.map((c, i) => i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`).join('')}</tr>`).join('')}</table></div>` : ''}
-      <div class="ex-opts">${q.options.map((o, i) => `<button class="ex-opt ${ans[q.id] === o.id ? 'on' : ''}" data-o="${o.id}"><span>${'ABCDEFGH'[i]}</span>${esc(o.text)}</button>`).join('')}</div>`;
+      <div class="ex-opts ${q.multi ? 'multi' : ''}">${q.options.map((o, i) => `<button class="ex-opt ${picked(q, o.id) ? 'on' : ''}" data-o="${o.id}"><span>${q.multi ? (picked(q, o.id) ? '✓' : '') : 'ABCDEFGH'[i]}</span>${q.multi ? `<b class="ex-l">${'ABCDEFGH'[i]}.</b> ` : ''}${esc(o.text)}</button>`).join('')}</div>`;
     $('#qbox').querySelectorAll('.ex-opt').forEach((b) => b.onclick = async () => {
-      const oid = ans[q.id] === b.dataset.o ? null : b.dataset.o;
+      let oid;
+      if (q.multi) {
+        const cur2 = new Set(ans[q.id] || []);
+        cur2.has(b.dataset.o) ? cur2.delete(b.dataset.o) : cur2.add(b.dataset.o);
+        oid = cur2.size ? [...cur2].sort() : null;
+      } else oid = ans[q.id] === b.dataset.o ? null : b.dataset.o;
       if (oid) ans[q.id] = oid; else delete ans[q.id];
       draw();
       saveAnswer(q.id, oid);
@@ -800,6 +809,11 @@ function showResult(r) {
     <a class="btn" href="#">Back to the site</a></div></div>`;
 }
 
+const isKey = (it, oid) => (Array.isArray(it.answer) ? it.answer.includes(oid) : it.answer === oid);
+const keyLetters = (it) => it.options.map((o, i) => (isKey(it, o.id) ? 'ABCDEFGH'[i] : '')).join('');
+const ansLetters = (it, c) => it.options.map((o, i) => ((Array.isArray(c) ? c.includes(o.id) : c === o.id) ? 'ABCDEFGH'[i] : '')).join('');
+const ansRight = (it, c) => ansLetters(it, c) === keyLetters(it);
+
 // Read-only review page for an outside reviewer (secret link, no sign-in).
 async function viewExamReview(eid, token) {
   document.body.classList.add('exam-on');
@@ -816,7 +830,8 @@ async function viewExamReview(eid, token) {
       <section class="rv-q ${it.excluded ? 'ex-off' : ''}"><p class="rv-n">Question ${n}${it.excluded ? ' · <b>removed from scoring</b>' : ''}</p>
         <p class="rv-t">${esc(it.text)}</p>
         ${it.table ? `<div class="tw"><table class="ex-table"><tr>${it.table.head.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${it.table.rows.map((r) => `<tr>${r.map((c, i) => i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`).join('')}</tr>`).join('')}</table></div>` : ''}
-        <ol class="rv-opts">${it.options.map((o, i) => `<li class="${o.id === it.answer ? 'k' : ''}"><span>${L[i]}</span>${esc(o.text)}${o.id === it.answer ? ' <b>✓ correct</b>' : ''}</li>`).join('')}</ol>
+        ${Array.isArray(it.answer) ? '<p class="rv-note" style="background:var(--acs);color:var(--ac)">Multiple-answer question — trainees must select all correct options.</p>' : ''}
+        <ol class="rv-opts">${it.options.map((o, i) => `<li class="${isKey(it, o.id) ? 'k' : ''}"><span>${L[i]}</span>${esc(o.text)}${isKey(it, o.id) ? ' <b>✓ correct</b>' : ''}</li>`).join('')}</ol>
         ${it.keyNote || it.keyUnverified ? `<p class="rv-note">⚠ ${it.keyUnverified ? 'No answer was marked in the source file; this key was set from the figures — please confirm. ' : ''}${esc(it.keyNote || '')}</p>` : ''}
       </section>`;
     }).join('')}
@@ -866,9 +881,10 @@ async function viewExamAdmin(eid) {
     <div class="list">${e.items.map((it, n) => { const x = an[it.id] || {}; return `<div class="tile ${it.excluded ? 'ex-off' : ''}">
       <div class="row" style="justify-content:space-between"><b>${n + 1}. ${it.group ? `<small class="muted">[${it.group}]</small> ` : ''}${esc(it.text)}</b>${it.excluded ? '<span class="tag t-closed">Excluded</span>' : ''}</div>
       ${it.keyNote || it.keyUnverified ? `<div class="warn">${it.keyUnverified ? 'No answer was marked for this question in the source file — the key was set by reading the figures. Please confirm. ' : ''}${esc(it.keyNote || '')}</div>` : ''}
-      <ol type="A" class="ex-akey">${it.options.map((o) => `<li class="${o.id === it.answer ? 'k' : ''}">${esc(o.text)} <small class="muted">${x.counts ? `· ${x.counts[o.id] || 0}` : ''}</small></li>`).join('')}</ol>
+      ${it.multi ? '<p class="muted">Multiple answers — scored correct only when exactly the key options are chosen.</p>' : ''}
+      <ol type="A" class="ex-akey">${it.options.map((o) => `<li class="${isKey(it, o.id) ? 'k' : ''}">${esc(o.text)} <small class="muted">${x.counts ? `· ${x.counts[o.id] || 0}` : ''}</small></li>`).join('')}</ol>
       <div class="row"><span class="muted">Difficulty <b>${x.p ?? '—'}</b> · Discrimination <b>${x.D ?? '—'}</b>${x.unanswered ? ` · ${x.unanswered} blank` : ''}</span>${(x.flags || []).map((f) => `<span class="tag t-late">${f}</span>`).join('')}</div>
-      <div class="row"><label style="display:flex;gap:6px;align-items:center">Key <select data-key="${it.id}" style="width:auto">${it.options.map((o, i) => `<option value="${o.id}" ${o.id === it.answer ? 'selected' : ''}>${L[i]}</option>`).join('')}</select></label>
+      <div class="row">${it.multi ? `<span class="muted">Key: <b>${keyLetters(it)}</b></span>` : `<label style="display:flex;gap:6px;align-items:center">Key <select data-key="${it.id}" style="width:auto">${it.options.map((o, i) => `<option value="${o.id}" ${o.id === it.answer ? 'selected' : ''}>${L[i]}</option>`).join('')}</select></label>`}
         <button class="${it.excluded ? '' : 'bad'}" data-ex="${it.id}" data-v="${!it.excluded}">${it.excluded ? 'Restore question' : 'Delete question from scoring'}</button></div></div>`; }).join('')}</div></div>`;
   $('#cp').onclick = () => navigator.clipboard?.writeText(url).then(() => { $('#cp').textContent = 'Copied ✓'; });
   if ($('#rvn')) $('#rvn').onclick = async () => { await api(`admin/exams/${eid}/review-link`, { body: {} }); route(); };
@@ -885,7 +901,7 @@ async function viewExamAdmin(eid) {
   app.querySelectorAll('[data-view]').forEach((b) => b.onclick = () => {
     const a = d.attempts.find((x) => x.id === b.dataset.view);
     $('#dlgBody').innerHTML = `<h2>${esc(a.name)}</h2><p class="muted">${esc(a.scfhs)} · started ${fmt(a.startedAt)}${a.submittedAt ? ` · submitted ${fmt(a.submittedAt)}` : ''}</p>
-      <div class="tw"><table><tr><th>#</th><th>Question</th><th>Answer</th><th>Key</th></tr>${e.items.map((it, n) => { const c = a.answers[it.id]; const oi = (id) => it.options.findIndex((o) => o.id === id); return `<tr class="${it.excluded ? 'ex-off' : ''}"><td>${n + 1}</td><td>${esc(it.text.slice(0, 90))}${it.text.length > 90 ? '…' : ''}</td><td>${c ? `<span class="tag ${c === it.answer ? 't-done' : 't-closed'}">${L[oi(c)]}</span>` : '<span class="muted">—</span>'}</td><td>${L[oi(it.answer)]}</td></tr>`; }).join('')}</table></div>
+      <div class="tw"><table><tr><th>#</th><th>Question</th><th>Answer</th><th>Key</th></tr>${e.items.map((it, n) => { const c = a.answers[it.id]; return `<tr class="${it.excluded ? 'ex-off' : ''}"><td>${n + 1}</td><td>${esc(it.text.slice(0, 90))}${it.text.length > 90 ? '…' : ''}</td><td>${c ? `<span class="tag ${ansRight(it, c) ? 't-done' : 't-closed'}">${ansLetters(it, c)}</span>` : '<span class="muted">—</span>'}</td><td>${keyLetters(it)}</td></tr>`; }).join('')}</table></div>
       ${(a.events || []).length ? `<h3>Activity log</h3><ul>${a.events.slice(-40).map((x) => `<li>${fmt(x.t)} · ${esc(x.type)}</li>`).join('')}</ul>` : ''}
       <div class="bar"><button id="x">Close</button></div>`;
     $('#x').onclick = () => $('#dlg').close();
@@ -893,7 +909,7 @@ async function viewExamAdmin(eid) {
   });
   $('#csv').onclick = () => {
     const rows = [['Name', 'SCFHS', 'Score', 'Total', 'Percent', 'Started', 'Submitted', 'Auto-submitted', 'Left page', 'Resumed', ...e.items.map((_, n) => 'Q' + (n + 1))]];
-    for (const a of d.attempts) rows.push([a.name, a.scfhs, a.score ?? '', a.total ?? '', a.percent ?? '', a.startedAt, a.submittedAt || '', a.autoSubmitted ? 'yes' : '', a.focusLost || 0, a.resumes || 0, ...e.items.map((it) => { const c = a.answers[it.id]; return c ? L[it.options.findIndex((o) => o.id === c)] + (c === it.answer ? ' ✓' : '') : ''; })]);
+    for (const a of d.attempts) rows.push([a.name, a.scfhs, a.score ?? '', a.total ?? '', a.percent ?? '', a.startedAt, a.submittedAt || '', a.autoSubmitted ? 'yes' : '', a.focusLost || 0, a.resumes || 0, ...e.items.map((it) => { const c = a.answers[it.id]; return c ? ansLetters(it, c) + (ansRight(it, c) ? ' ✓' : '') : ''; })]);
     const csv = '﻿' + rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
     const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = `${e.id}-results.csv`; link.click();
   };

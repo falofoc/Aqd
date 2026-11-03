@@ -323,3 +323,8 @@ button.big{padding:14px;font-size:1.1rem}
 .rv-note{background:var(--was);color:var(--wa);border-radius:8px;padding:8px 10px;margin:10px 0 0;font-size:15px}
 .ex-imgs figure{margin:0}.ex-imgs figcaption{text-align:center;font-weight:700;font-size:14px}
 @media print{.rv-print{display:none!important}.rv{padding:0}.rv-q{border-color:#ccc}}
+
+.ex-multi{background:#fbefd9;color:#8f5300;border-radius:10px;padding:10px 12px;margin:0;font-weight:600}
+.ex-opts.multi .ex-opt span{border-radius:6px;background:var(--sf);border:2px solid var(--ac)}
+.ex-opts.multi .ex-opt.on span{background:var(--ac);color:#fff}
+.ex-l{color:var(--mu);font-weight:700}
