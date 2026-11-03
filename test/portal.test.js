@@ -232,7 +232,7 @@ test('T1 exam: hidden answers, password, one attempt, grading, excluding a quest
   try {
     const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
     const info = (await call('exam/t1')).data;
-    assert.equal(info.count, 28);
+    assert.equal(info.count, 26);
     assert.equal(info.durationMin, 60);
     const me = { name: 'Sara Ali Alqahtani', scfhs: '19RM123', password: 'AFHSR26' };
     assert.equal((await call('exam/t1/start', { body: me })).status, 403, 'not open yet');
@@ -241,29 +241,29 @@ test('T1 exam: hidden answers, password, one attempt, grading, excluding a quest
     assert.equal((await call('exam/t1/start', { body: { ...me, password: 'x' } })).status, 403);
     assert.equal((await call('exam/t1/start', { body: { ...me, name: 'Sara' } })).status, 400);
     const st = (await call('exam/t1/start', { body: me })).data;
-    assert.equal(st.questions.length, 28);
+    assert.equal(st.questions.length, 26);
     const raw = JSON.stringify(st);
     assert.ok(!raw.includes('"answer"') && !raw.includes('keyNote') && !raw.includes('AFHSR26'), 'no answers or password sent');
     // grouped questions stay together
     const pos = st.questions.map((q, i) => (q.group === 'lab' ? i : -1)).filter((i) => i >= 0);
-    assert.equal(pos[3] - pos[0], 3);
+    assert.equal(pos[2] - pos[0], 2); // Q18 removed, so three lab questions remain
     // answer every question correctly using the server's key
     const { exam } = (await call('admin/exams/t1', { cookie: admin })).data;
     for (const it of exam.items) await call('exam/attempt/answer', { body: { token: st.token, itemId: it.id, optionId: it.answer } });
     await call('exam/attempt/event', { body: { token: st.token, type: 'hidden' } });
     const res = (await call('exam/attempt/submit', { body: { token: st.token } })).data;
-    assert.deepEqual([res.score, res.total, res.percent], [28, 28, 100]);
+    assert.deepEqual([res.score, res.total, res.percent], [26, 26, 100]);
     assert.equal(res.answers, undefined);
     // one attempt per SCFHS number: starting again just shows the result
     const again = (await call('exam/t1/start', { body: me })).data;
     assert.equal(again.submitted, true);
-    assert.equal(again.score, 28);
+    assert.equal(again.score, 26);
     // excluding a question re-grades everyone
-    await call('admin/exams/t1/items/q18', { cookie: admin, body: { excluded: true } });
+    await call('admin/exams/t1/items/q4', { cookie: admin, body: { excluded: true } });
     const adm = (await call('admin/exams/t1', { cookie: admin })).data;
-    assert.equal(adm.attempts[0].total, 27);
+    assert.equal(adm.attempts[0].total, 25);
     assert.equal(adm.attempts[0].focusLost, 1);
-    assert.equal((await call('exam/t1')).data.count, 27);
+    assert.equal((await call('exam/t1')).data.count, 25);
     // deleting the attempt allows a new one
     await call('admin/exams/t1/attempts/' + adm.attempts[0].id, { cookie: admin, method: 'DELETE' });
     assert.ok((await call('exam/t1/start', { body: me })).data.token);
@@ -285,7 +285,7 @@ test('admin can preview a closed exam without it counting', async () => {
     const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
     const st = (await call('exam/t1/start', { body: me, cookie: admin })).data;
     assert.ok(st.token);
-    assert.equal((await call('exam/attempt/submit', { body: { token: st.token } })).data.total, 28);
+    assert.equal((await call('exam/attempt/submit', { body: { token: st.token } })).data.total, 26);
     const st2 = (await call('exam/t1/start', { body: me, cookie: admin })).data;
     assert.ok(st2.token && st2.token !== st.token, 'a new preview replaces the old one');
     const adm = (await call('admin/exams/t1', { cookie: admin })).data;
@@ -309,7 +309,7 @@ test('exam reviewer link: secret, read-only, revocable', async () => {
     const { token } = (await call('admin/exams/t1/review-link', { cookie: admin, body: {} })).data;
     const rv = await call('exam/t1/review/' + token);
     assert.equal(rv.status, 200);
-    assert.equal(rv.data.items.length, 28);
+    assert.equal(rv.data.items.length, 28); // removed questions stay listed for the reviewer, marked as removed
     assert.ok(rv.data.items.every((i) => i.answer));
     assert.ok(!JSON.stringify(rv.data).includes('AFHSR26'), 'password not exposed');
     assert.ok(!JSON.stringify((await call('exam/t1')).data).includes(token), 'token not in public info');
