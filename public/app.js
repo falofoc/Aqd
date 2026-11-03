@@ -712,36 +712,43 @@ async function viewExam(eid) {
   const info = await api('exam/' + eid);
   document.body.classList.add('exam-on');
   const saved = examStore(eid) || {};
-  const rules = ['You have <b>' + info.durationMin + ' minutes</b> from the moment you start. The timer keeps running if you close the page; the exam is submitted automatically when time runs out.',
+  // Exams with a trainee list are shown in Arabic.
+  const ar = info.roster && !(ME && ME.role === 'admin');
+  const T = (en, arText) => (ar ? arText : en);
+  const rules = ar ? [
+    `مدة الاختبار <b>${info.durationMin} دقيقة</b> تبدأ من لحظة الدخول، والوقت يستمر حتى لو أغلقت الصفحة، ويُسلَّم الاختبار تلقائياً عند انتهاء الوقت.`,
+    'محاولة واحدة لكل متدرب. إذا انقطع الاتصال أدخل بياناتك مرة أخرى وتكمل من حيث توقفت.',
+    'ترتيب الأسئلة والخيارات مختلف لكل متدرب.',
+    'ابقَ في صفحة الاختبار: الخروج منها أو التنقل بين التطبيقات أو النسخ يُسجَّل ويُرفع للبرنامج.',
+    'إجاباتك تُحفظ أولاً بأول، وتظهر لك درجتك في النهاية دون الإجابات الصحيحة.'] : ['You have <b>' + info.durationMin + ' minutes</b> from the moment you start. The timer keeps running if you close the page; the exam is submitted automatically when time runs out.',
     'One attempt per SCFHS number. If your connection drops, enter your details again to continue where you stopped.',
     'Questions and choices appear in a different order for each trainee.',
     'Stay on this page: leaving it, switching apps or copying is recorded and reported to the program.',
     'Your answers are saved as you choose them. You will see your score at the end; the correct answers are not shown.'];
   app.innerHTML = `<div class="exam-gate">
-    <div class="eg-card"><img src="brand/shield.png" alt="" width="48" height="56"><span class="kicker">${esc(S.board)}</span><h1>${esc(info.title)}</h1>
-      <div class="eg-facts"><div><b>${info.count}</b><span>questions</span></div><div><b>${info.durationMin}</b><span>minutes</span></div><div><b>${new Date(info.openAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Riyadh' })}</b><span>${new Date(info.openAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}–${new Date(info.closeAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}</span></div></div>
+    <div class="eg-card ${ar ? 'ar-card' : ''}" ${ar ? 'dir="rtl"' : ''}><img src="brand/shield.png" alt="" width="48" height="56"><span class="kicker">${esc(S.board)}</span><h1>${esc(info.title)}</h1>
+      <div class="eg-facts"><div><b>${info.count}</b><span>${T('questions', 'سؤال')}</span></div><div><b>${info.durationMin}</b><span>${T('minutes', 'دقيقة')}</span></div><div><b>${new Date(info.openAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Riyadh' })}</b><span>${new Date(info.openAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}–${new Date(info.closeAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}</span></div></div>
       ${ME && ME.role === 'admin' ? '<div class="box"><b>Admin preview</b>You can sit this exam now, whatever its dates. Your attempt is not counted in the results or the analysis, and starting again replaces it.</div>' : ''}
       <div id="eg-state"></div>
       <ul class="ticks">${rules.map((r) => `<li>${r}</li>`).join('')}</ul>
       <form id="ef" class="list">
         ${info.roster && !(ME && ME.role === 'admin') ? `
-        <label>Exam password · كلمة مرور الاختبار<input name="password" type="password" required autocomplete="off"></label>
-        <label dir="rtl" class="ar">الاسم (بالعربي كما في القائمة)<input name="name" required autocomplete="off" list="names" placeholder="اكتب أول اسمك واختر من القائمة" disabled></label>
-        <datalist id="names"></datalist>
+        <label>كلمة مرور الاختبار<input name="password" type="password" required autocomplete="off" dir="ltr"></label>
+        <label class="sug-wrap">الاسم الرباعي بالعربي<input name="name" required autocomplete="off" autocorrect="off" spellcheck="false" placeholder="اكتب أول اسمك واختر من القائمة" disabled><div class="sug" id="sug" hidden></div></label>
         <p class="muted ar" dir="rtl" id="nhint">أدخل كلمة المرور أولاً لتظهر أسماء المختبرين.</p>
-        <label dir="rtl" class="ar">رقم الهوية<input name="nid" required inputmode="numeric" autocomplete="off" maxlength="10" placeholder="10 أرقام" disabled></label>`
+        <label>رقم الهوية<input name="nid" required inputmode="numeric" autocomplete="off" maxlength="10" placeholder="10 أرقام" disabled></label>`
         : `<label>Full name (as in SCFHS records)<input name="name" required value="${esc(saved.name || '')}" autocomplete="name"></label>
         <label>SCFHS number<input name="scfhs" required value="${esc(saved.scfhs || '')}"></label>
         <label>Exam password<input name="password" type="password" required autocomplete="off"></label>`}
-        <label class="eg-agree"><input type="checkbox" required style="width:auto"> I will answer on my own, without help or other resources.</label>
-        <div id="e"></div><button class="pri big">Start the exam</button></form>
-      <a href="#exam" class="muted" style="text-align:center">← Back</a></div></div>`;
+        <label class="eg-agree"><input type="checkbox" required style="width:auto"> ${T('I will answer on my own, without help or other resources.', 'أتعهد بالإجابة بنفسي دون مساعدة أو مصادر أخرى.')}</label>
+        <div id="e"></div><button class="pri big">${T('Start the exam', 'ابدأ الاختبار')}</button></form>
+      <a href="#exam" class="muted" style="text-align:center">${T('← Back', 'رجوع →')}</a></div></div>`;
   const stEl = $('#eg-state');
   const tickGate = () => {
     const now = Date.now(), o = new Date(info.openAt), c = new Date(info.closeAt);
-    if (now < o) { const s = Math.floor((o - now) / 1000); stEl.innerHTML = `<div class="warn">Opens in <b>${Math.floor(s / 86400) ? Math.floor(s / 86400) + ' d ' : ''}${pad(Math.floor(s / 3600) % 24)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}</b></div>`; }
-    else if (now > c) stEl.innerHTML = '<div class="err">This exam is closed. If you already sat it, enter your details to see your result.</div>';
-    else stEl.innerHTML = `<div class="box">Open now — closes at ${fmt(info.closeAt)}</div>`;
+    if (now < o) { const s = Math.floor((o - now) / 1000); stEl.innerHTML = `<div class="warn">${T('Opens in', 'يفتح بعد')} <b dir="ltr">${Math.floor(s / 86400) ? Math.floor(s / 86400) + ' d ' : ''}${pad(Math.floor(s / 3600) % 24)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}</b></div>`; }
+    else if (now > c) stEl.innerHTML = `<div class="err">${T('This exam is closed. If you already sat it, enter your details to see your result.', 'الاختبار مغلق. إذا كنت أديته، أدخل بياناتك لترى نتيجتك.')}</div>`;
+    else stEl.innerHTML = `<div class="box">${T('Open now — closes at', 'مفتوح الآن — يُغلق')} ${fmt(info.closeAt)}</div>`;
   };
   tickGate();
   const gt = setInterval(tickGate, 1000);
@@ -754,12 +761,27 @@ async function viewExam(eid) {
       if (!pw || pw === last) return; last = pw;
       try {
         names = (await api(`exam/${eid}/names`, { body: { password: pw } })).names;
-        $('#names').innerHTML = names.map((n) => `<option value="${esc(n)}">`).join('');
         f.name.disabled = false; f.nid.disabled = false;
         $('#nhint').textContent = 'اكتب أول اسمك ثم اختر اسمك الكامل من الاقتراحات، وبعده رقم هويتك.';
         f.name.focus();
       } catch { $('#nhint').textContent = 'كلمة المرور غير صحيحة.'; f.name.disabled = true; f.nid.disabled = true; }
     };
+    // Our own suggestion list (the browser's built-in one does not work on many phones).
+    const norm = (t) => String(t || '').replace(/[\u064B-\u0652\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ').trim();
+    const sug = $('#sug');
+    const showSug = () => {
+      const q = norm(f.name.value);
+      if (!q) { sug.hidden = true; return; }
+      const qs = q.replace(/ /g, '');
+      const hits = names.filter((n) => { const k = norm(n); return k.startsWith(q) || k.replace(/ /g, '').startsWith(qs) || k.split(' ').some((w) => w.startsWith(q)); }).slice(0, 6);
+      if (names.some((n) => norm(n) === q)) { sug.hidden = true; return; } // a full listed name is already chosen
+      sug.innerHTML = hits.length ? hits.map((n) => `<button type="button" data-n="${esc(n)}">${esc(n)}</button>`).join('') : '<p class="muted">لا يوجد اسم مطابق في القائمة</p>';
+      sug.hidden = false;
+      sug.querySelectorAll('button').forEach((b) => b.onmousedown = b.ontouchstart = (ev) => { ev.preventDefault(); f.name.value = b.dataset.n; sug.hidden = true; f.nid.focus(); });
+    };
+    f.name.addEventListener('input', showSug);
+    f.name.addEventListener('focus', showSug);
+    f.name.addEventListener('blur', () => setTimeout(() => { sug.hidden = true; }, 150));
     f.password.addEventListener('change', unlock);
     f.password.addEventListener('blur', unlock);
     f.password.addEventListener('keyup', () => { if (f.password.value.length >= 6) unlock(); });
@@ -767,8 +789,9 @@ async function viewExam(eid) {
   }
   $('#ef').onsubmit = async (ev) => {
     ev.preventDefault();
-    const f = ev.target, btn = f.querySelector('button');
-    btn.disabled = true; btn.textContent = 'Starting…';
+    if ($('#sug')) $('#sug').hidden = true;
+    const f = ev.target, btn = f.querySelector('button.big'), label = btn.textContent;
+    btn.disabled = true; btn.textContent = ar ? 'جارٍ البدء…' : 'Starting…';
     try {
       const body = { name: f.name.value, scfhs: f.scfhs?.value, nid: f.nid?.value, password: f.password.value };
       const r = await api(`exam/${eid}/start`, { body });
@@ -776,7 +799,7 @@ async function viewExam(eid) {
       clearInterval(gt);
       if (r.submitted) return showResult(r);
       runExam(eid, r);
-    } catch (e) { errBox(e); btn.disabled = false; btn.textContent = 'Start the exam'; }
+    } catch (e) { errBox(e); btn.disabled = false; btn.textContent = label; }
   };
 }
 
