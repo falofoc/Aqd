@@ -989,13 +989,20 @@ function runExam(eid, run) {
     <header class="ex-bar"><div class="ex-t"><b id="ptitle">${esc(part.title || run.title)}</b><small>${esc(run.name)}</small></div>
       <div class="ex-timer" id="tm">--:--</div>
       <button id="calc" class="ex-calc" type="button" title="Calculator" aria-label="Calculator"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.5 6.5h7M8.5 11h.01M12 11h.01M15.5 11h.01M8.5 14.5h.01M12 14.5h.01M15.5 14.5h.01M8.5 18h.01M12 18h.01M15.5 18h.01"/></svg></button>
+      <button id="scr" class="ex-calc" type="button" title="Scratchpad" aria-label="Scratchpad"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg></button>
       <button class="pri" id="fin">${part.next ? 'Finish part' : 'Submit'}</button></header>
     <div class="ex-prog"><i id="pg"></i></div>
     <div id="ex-warn"></div>
     <main class="ex-main"><div id="qbox"></div>
       <div class="ex-nav"><button id="prev">← Previous</button><button id="flag">⚑ Flag</button><button class="pri" id="next">Next →</button></div>
       <div class="ex-grid" id="grid"></div><p class="muted ex-save" id="sv"></p></main></div>`;
-  if (window.Calc) { Calc.reset(); $('#calc').onclick = () => Calc.toggle(); } else $('#calc').remove();
+  // Calculator and scratchpad: one open at a time.
+  if (window.Calc) { Calc.reset(); $('#calc').onclick = () => { if (window.Scratch) Scratch.close(); Calc.toggle(); }; } else $('#calc').remove();
+  if (window.Scratch) { Scratch.reset('exam-scratch:' + run.token); $('#scr').onclick = () => { if (window.Calc) Calc.close(); Scratch.toggle(); }; } else $('#scr').remove();
+  // Crossed-out choices (kept on the device only).
+  run.struck = run.struck || {};
+  const struck = (qid, oid) => (run.struck[qid] || []).includes(oid);
+  const toggleStrike = (qid, oid) => { const l = new Set(run.struck[qid] || []); l.has(oid) ? l.delete(oid) : l.add(oid); run.struck[qid] = [...l]; runSet(run); draw(); };
   // Images (epidemic curves) of every part are loaded now, so they show without a connection later.
   parts.forEach((pt) => pt.questions.forEach((q) => (q.images || []).forEach((src) => { const im = new Image(); im.src = src; })));
   const saveAnswer = (itemId, optionId) => {
@@ -1013,7 +1020,9 @@ function runExam(eid, run) {
       ${isLocked(q.id) ? '<div class="ex-lock">🔒 This question is locked because you left the exam page. Its answer stays as it was.</div>' : ''}
       ${q.multi ? '<p class="ex-multi">☑ Select <b>all</b> correct answers — this question has more than one. It counts only if you choose exactly the right ones.</p>' : ''}
       ${q.table ? `<div class="tw"><table class="ex-table"><tr>${q.table.head.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${q.table.rows.map((r) => `<tr>${r.map((c, i) => i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`).join('')}</tr>`).join('')}</table></div>` : ''}
-      <div class="ex-opts ${q.multi ? 'multi' : ''} ${isLocked(q.id) ? 'locked' : ''}">${q.options.map((o, i) => `<button class="ex-opt ${picked(q, o.id) ? 'on' : ''}" data-o="${o.id}"><span>${q.multi ? (picked(q, o.id) ? '✓' : '') : 'ABCDEFGH'[i]}</span>${q.multi ? `<b class="ex-l">${'ABCDEFGH'[i]}.</b> ` : ''}${esc(o.text)}</button>`).join('')}</div>`;
+      <div class="ex-opts ${q.multi ? 'multi' : ''} ${isLocked(q.id) ? 'locked' : ''}">${q.options.map((o, i) => `<div class="ex-row ${struck(q.id, o.id) ? 'x' : ''}"><button class="ex-opt ${picked(q, o.id) ? 'on' : ''}" data-o="${o.id}"><span>${q.multi ? (picked(q, o.id) ? '✓' : '') : 'ABCDEFGH'[i]}</span>${q.multi ? `<b class="ex-l">${'ABCDEFGH'[i]}.</b> ` : ''}<i>${esc(o.text)}</i></button><button type="button" class="ex-strike" data-x="${o.id}" title="${struck(q.id, o.id) ? 'Restore this choice' : 'Cross out this choice'}" aria-label="${struck(q.id, o.id) ? 'Restore' : 'Cross out'} choice ${'ABCDEFGH'[i]}">${struck(q.id, o.id) ? '↺' : '⊘'}</button></div>`).join('')}</div>`;
+    $('#qbox').querySelectorAll('.ex-strike').forEach((b) => b.onclick = () => toggleStrike(q.id, b.dataset.x));
+    if (window.Scratch) Scratch.setPage(q.id, `Question ${cur + 1}`);
     $('#qbox').querySelectorAll('.ex-opt').forEach((b) => b.onclick = () => {
       if (done || isLocked(q.id)) return;
       let oid;
@@ -1023,6 +1032,7 @@ function runExam(eid, run) {
         oid = cur2.size ? [...cur2].sort() : null;
       } else oid = ans[q.id] === b.dataset.o ? null : b.dataset.o;
       if (oid) ans[q.id] = oid; else delete ans[q.id];
+      if (struck(q.id, b.dataset.o) && (Array.isArray(oid) ? oid.includes(b.dataset.o) : oid === b.dataset.o)) run.struck[q.id] = run.struck[q.id].filter((x) => x !== b.dataset.o);
       draw();
       saveAnswer(q.id, oid);
     });
@@ -1042,6 +1052,7 @@ function runExam(eid, run) {
     awayEnd();
     if ($('#dlg').open) $('#dlg').close();
     run.done = true; run.auto = auto; runPush(run, { k: 'sub', auto });
+    if (window.Scratch) { Scratch.reset(); try { localStorage.removeItem('exam-scratch:' + run.token); } catch {} }
     finishScreen(eid, auto);
   };
   // Finishing a part locks it on the device at once; the server is told in order with everything else.
@@ -1139,7 +1150,8 @@ function runExam(eid, run) {
   let resizeT = 0;
   const onResize = () => { clearTimeout(resizeT); resizeT = setTimeout(onAwayChange, 200); };
   const stop = (type) => (e) => { e.preventDefault(); ev(type); warn('Copying and right-click are disabled during the exam.'); };
-  const onCopy = stop('copy'), onCtx = stop('contextmenu'), onPaste = stop('paste');
+  const onCopy = stop('copy'), onPaste = stop('paste'), ctxStop = stop('contextmenu');
+  const onCtx = (e) => { const row = e.target.closest && e.target.closest('.ex-row'); if (row && !done) { e.preventDefault(); toggleStrike(qs[cur].id, row.querySelector('.ex-opt').dataset.o); return; } ctxStop(e); };
   const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && ['p', 's', 'c', 'u'].includes(e.key.toLowerCase())) { e.preventDefault(); ev(e.key.toLowerCase() === 'p' ? 'print' : 'copy'); } if (e.key === 'F12') { e.preventDefault(); ev('devtools'); } };
   const onUnload = (e) => { e.preventDefault(); e.returnValue = ''; };
   const onFs = () => { if (!document.fullscreenElement) ev('fullscreen-exit'); };
@@ -1164,6 +1176,7 @@ function runExam(eid, run) {
     document.removeEventListener('keydown', onKey); window.removeEventListener('beforeunload', onUnload);
     document.removeEventListener('fullscreenchange', onFs);
     if (window.Calc) Calc.reset();
+    if (window.Scratch) Scratch.close();
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   }
   examCleanup = cleanup;
@@ -1197,7 +1210,7 @@ function splitScreen() {
 // ---------- Download before the start ----------
 // What a browser needs for the exam to keep working with no connection, even after a reload.
 const OFFLINE_CACHE = 'pm-site-v1'; // same name as in sw.js
-const OFFLINE_FILES = ['./', 'index.html', 'app.js', 'calc.js', 'content.js', 'style.css', 'brand/shield.png', 'brand/shield-white.png', 'brand/favicon.png', 'brand/logo.png'];
+const OFFLINE_FILES = ['./', 'index.html', 'app.js', 'calc.js', 'scratch.js', 'content.js', 'style.css', 'brand/shield.png', 'brand/shield-white.png', 'brand/favicon.png', 'brand/logo.png'];
 // Phones are refused for exams set to "laptops and tablets only" (the server checks too).
 const screenInfo = () => ({ short: Math.min(screen.width || 0, screen.height || 0), touch: matchMedia('(pointer:coarse)').matches });
 const isPhoneDevice = () => /iPhone|iPod|Windows Phone|Android.*Mobile|Mobile.*Android|BlackBerry|Opera Mini|IEMobile/i.test(navigator.userAgent || '')

@@ -2,7 +2,7 @@
 // Keeps the site's own files on the device. Network first (always the latest version when online);
 // the saved copy is used only when there is no connection. The API is never cached.
 const CACHE = 'pm-site-v1';
-const SHELL = ['./', 'index.html', 'app.js', 'calc.js', 'content.js', 'style.css', 'brand/shield.png', 'brand/shield-white.png', 'brand/favicon.png', 'brand/logo.png'];
+const SHELL = ['./', 'index.html', 'app.js', 'calc.js', 'scratch.js', 'content.js', 'style.css', 'brand/shield.png', 'brand/shield-white.png', 'brand/favicon.png', 'brand/logo.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => Promise.all(SHELL.map((u) => c.add(u).catch(() => {})))).then(() => self.skipWaiting()));
