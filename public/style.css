@@ -373,56 +373,73 @@ button.big{padding:14px;font-size:1.1rem}
 .lockbar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#eef1f2;border:1px solid var(--ln);border-radius:12px;padding:10px 12px;font-size:15px}
 .lockbar.open{background:#fbefd9;border-color:#e8b25a;color:#5a3b00}
 .locked input,.locked select,.locked textarea{background:var(--bg)}
-/* exam calculator */
+/* exam calculator: a calm, standard calculator look (neutral keys, LCD-style screen) */
 .ex-calc{background:#ffffff1a;color:#fff;border:0;border-radius:10px;padding:7px 9px;display:grid;place-items:center}
 .ex-calc:hover{background:#ffffff33}
 .cx-on .ex-calc{background:#fff;color:#233b3d}
-.cx{position:fixed;z-index:30;right:16px;bottom:16px;width:360px;max-height:calc(100vh - 90px);overflow:auto;background:#fff;border:1px solid var(--ln);border-radius:16px;box-shadow:0 18px 50px #0003;padding:12px;display:grid;gap:10px;font-family:"IBM Plex Sans",sans-serif;user-select:none;-webkit-user-select:none}
+.cx{--k-bg:#f4f5f6;--k-bd:#d9dde1;--k-fg:#20262c;--kf-bg:#e6e9ec;--ko-bg:#d6dee8;--ko-fg:#1d3a5c;--km-bg:#e3e7f0;--kc-bg:#efe3e1;--kc-fg:#8a3b32;--eq-bg:#2f5d8a;--lcd:#e9efe6;--lcd-fg:#1c2620;
+  position:fixed;z-index:30;right:16px;bottom:16px;width:360px;max-height:calc(100vh - 90px);overflow:auto;background:#fbfbfc;border:1px solid #d5d9dd;border-radius:16px;box-shadow:0 18px 50px #0003;padding:12px;display:grid;gap:10px;font-family:"IBM Plex Sans",sans-serif;user-select:none;-webkit-user-select:none;color:var(--k-fg)}
 .cx[hidden]{display:none}
 .cx-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.cx-tabs{display:flex;background:var(--bg);border-radius:10px;padding:3px}
-.cx-tabs button{border:0;background:none;padding:6px 12px;border-radius:8px;font:600 .9rem inherit;color:var(--mu)}
-.cx-tabs button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px #0002}
-.cx-x{border:0;background:none;font-size:1.1rem;padding:6px 10px;color:var(--mu)}
+.cx-tabs{display:flex;background:#eceef1;border-radius:10px;padding:3px}
+.cx-tabs button{border:0;background:none;padding:6px 12px;border-radius:8px;font:600 .9rem inherit;color:#5b6570}
+.cx-tabs button.on{background:#fff;color:var(--k-fg);box-shadow:0 1px 3px #0002}
+.cx-x{border:0;background:none;font-size:1.1rem;padding:6px 10px;color:#5b6570}
 .cx-calc,.cx-stats{display:grid;gap:8px}
 .cx-calc[hidden],.cx-stats[hidden]{display:none}
 .cx-hist{display:grid;gap:2px;max-height:84px;overflow:auto}
 .cx-hist:empty{display:none}
-.cx-hist button{display:flex;justify-content:space-between;gap:10px;border:0;background:none;padding:2px 4px;font:.82rem ui-monospace,monospace;color:var(--mu);text-align:left}
+.cx-hist button{display:flex;justify-content:space-between;align-items:center;gap:10px;border:0;background:none;padding:2px 4px;font:.82rem ui-monospace,monospace;color:#6b747d;text-align:left}
 .cx-hist button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cx-hist button b{color:var(--ink)}
-.cx-in{font:600 1.35rem ui-monospace,monospace;text-align:right;padding:10px 12px;border-radius:10px;border:1px solid var(--ln);width:100%;box-sizing:border-box;user-select:text;-webkit-user-select:text}
-.cx-pre{min-height:1.4em;text-align:right;font:1.05rem ui-monospace,monospace;color:var(--ac)}
-.cx-pre.bad{color:var(--bad);font-family:inherit;font-size:.9rem}
+.cx-hist button b{color:var(--k-fg);font-weight:600}
+.cx-screen{background:var(--lcd);color:var(--lcd-fg);border:1px solid #cfd8cb;border-radius:10px;padding:8px 12px;min-height:74px;display:grid;align-content:space-between;gap:4px;box-shadow:inset 0 1px 3px #0000001a}
+.cx-pretty{font:1.15rem/1.5 "IBM Plex Sans",sans-serif;text-align:left;overflow-x:auto;white-space:nowrap}
+.cx-ph{color:#7d8a7a;font-size:.85rem}
+.cx-out{text-align:right;font:600 1.45rem/1.3 "IBM Plex Sans",sans-serif;min-height:1.3em}
+.cx-out .bad{color:#9b3a30;font-size:.9rem;font-weight:500}
+.cx-in{font:.95rem ui-monospace,monospace;text-align:left;padding:7px 10px;border-radius:8px;border:1px solid #d5d9dd;background:#fff;width:100%;box-sizing:border-box;user-select:text;-webkit-user-select:text;color:#3a434c}
+/* stacked fraction, root and powers, as written on paper */
+.mf{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;margin:0 .15em;font-size:.92em;line-height:1.15}
+.mf .mn{padding:0 .2em .05em;border-bottom:1.5px solid currentColor}
+.mf .md{padding:.05em .2em 0}
+.mr .mo{border-top:1.5px solid currentColor;padding:0 .1em;margin-left:.05em}
+.cx-pretty sup,.cx-out sup{font-size:.7em}
 .cx-keys{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
-.cx-keys button{border:0;border-radius:10px;padding:11px 0;font:600 1.02rem inherit;background:#eef2f2;color:var(--ink);touch-action:manipulation}
-.cx-keys button:active{transform:scale(.96)}
-.cx-keys .d{background:#f7f9f9;border:1px solid var(--ln)}
-.cx-keys .f{background:#e8eef0;font-size:.9rem}
-.cx-keys .o{background:#dbe9dc;color:#1f5a22}
-.cx-keys .c{background:#fbe3e0;color:var(--bad)}
-.cx-keys .eq{background:var(--ac);color:#fff}
-.cx-list{font:1rem ui-monospace,monospace;padding:10px;border-radius:10px;border:1px solid var(--ln);width:100%;box-sizing:border-box;resize:vertical;user-select:text;-webkit-user-select:text}
+.cx-keys button{border:1px solid transparent;border-radius:10px;padding:10px 0;font:600 1rem inherit;background:var(--kf-bg);color:var(--k-fg);touch-action:manipulation;box-shadow:0 1px 0 #0000001a}
+.cx-keys button:active{transform:translateY(1px);box-shadow:none}
+.cx-keys .d{background:var(--k-bg);border-color:var(--k-bd);font-size:1.08rem}
+.cx-keys .f{font-size:.9rem}
+.cx-keys .m{background:var(--km-bg);color:#2d3d63;font-size:.88rem}
+.cx-keys .m.on{background:#cdd6ea}
+.cx-keys .o{background:var(--ko-bg);color:var(--ko-fg);font-size:1.1rem}
+.cx-keys .c{background:var(--kc-bg);color:var(--kc-fg)}
+.cx-keys .eq{background:var(--eq-bg);color:#fff;font-size:1.15rem}
+.cx-list{font:1rem ui-monospace,monospace;padding:10px;border-radius:10px;border:1px solid #d5d9dd;width:100%;box-sizing:border-box;resize:vertical;user-select:text;-webkit-user-select:text}
 .cx-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.cx-grid div{background:var(--bg);border-radius:8px;padding:6px 8px;display:grid;gap:1px}
-.cx-grid span{font-size:.78rem;color:var(--mu)}
-.cx-grid small{display:block;font-size:.68rem}
-.cx-grid b{font:600 .95rem ui-monospace,monospace;word-break:break-all}
-.cx-tip{font-size:.8rem;color:var(--mu);margin:0}
+.cx-grid div{background:var(--lcd);border-radius:8px;padding:6px 8px;display:grid;gap:1px}
+.cx-grid span{font-size:.8rem;color:#55625a;font-weight:600}
+.cx-grid small{display:block;font-size:.68rem;font-weight:400}
+.cx-grid b{font:600 .95rem ui-monospace,monospace;word-break:break-all;color:var(--lcd-fg)}
+.cx-tip{font-size:.8rem;color:#6b747d;margin:0}
 #fin{white-space:nowrap}
 @media (min-width:641px){.cx-on .ex-main{max-width:min(860px,calc(100% - 420px));margin-left:max(16px,calc((100% - 420px - 860px)/2))}}
 @media (max-width:640px){
-  .cx{left:0;right:0;bottom:0;width:auto;border-radius:16px 16px 0 0;max-height:72vh;padding:8px 10px calc(8px + env(safe-area-inset-bottom));gap:6px}
-  .cx-on .ex-main{padding-bottom:74vh}
+  .cx{left:0;right:0;bottom:0;width:auto;border-radius:16px 16px 0 0;max-height:80vh;padding:6px 10px calc(6px + env(safe-area-inset-bottom));gap:5px}
+  .cx-on .ex-main{padding-bottom:82vh}
   .cx-calc{gap:5px}
-  .cx-tabs button{padding:4px 10px}
-  .cx-hist{max-height:22px}
-  .cx-in{font-size:1.15rem;padding:7px 10px}
-  .cx-pre{min-height:1.2em;font-size:.95rem}
-  .cx-keys{gap:5px}
-  .cx-keys button{padding:7px 0;font-size:.95rem}
-  .cx-keys .f{font-size:.85rem}
+  .cx-tabs button{padding:3px 10px;font-size:.85rem}
+  .cx-x{padding:2px 8px}
+  .cx-hist{display:none}
+  .cx-screen{min-height:54px;padding:4px 10px}
+  .cx-pretty{font-size:1rem}
+  .cx-out{font-size:1.2rem}
+  .cx-in{padding:4px 8px;font-size:.85rem}
+  .cx-keys{gap:4px}
+  .cx-keys button{padding:6px 0;font-size:.92rem}
+  .cx-keys .d{font-size:1rem}
+  .cx-keys .f,.cx-keys .m{font-size:.82rem}
 }
+
 /* exam password pop-up and submitting spinner */
 .eg-pw{width:100%;padding:12px;border-radius:10px;border:1.5px dashed var(--ac);background:var(--acs);color:var(--ac);font:600 1rem inherit}
 .eg-pw.ok{border-style:solid;cursor:default;opacity:1}
