@@ -508,5 +508,12 @@ test('exam download first, clock starts on begin (also when begin arrives late f
     const b2 = (await call('exam/attempt/begin', { body: { token: st.token, at: Date.now() } })).data;
     assert.equal(b2.deadline, b.deadline, 'begin only counts once');
     assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: q.id, optionId: q.answer, seq: 2, at: Date.now() } })).status, 200);
+    // leaving the page: question and time away are recorded and shown to the admin
+    await call('exam/attempt/event', { body: { token: st.token, type: 'away', itemId: q.id, ms: 42000, at: Date.now() - 42000 } });
+    await call('exam/attempt/event', { body: { token: st.token, type: 'away', itemId: 'nope', ms: 1000 } });
+    const att = (await call('admin/exams/t1', { cookie: admin })).data.attempts[0];
+    assert.equal(att.focusLost, 1);
+    assert.equal(att.awayMs, 42000);
+    assert.deepEqual(att.away.map((x) => x.itemId), [q.id]);
   } finally { srv.close(); }
 });
