@@ -934,7 +934,7 @@ function syncExam(eid) {
         if (netErr(e)) { clearTimeout(limit); syncAbort[eid] = null; n++; await new Promise((ok) => { const t = setTimeout(ok, Math.min(1000 * n, 5000)); syncWake[eid] = () => { clearTimeout(t); ok(); }; }); continue; }
         // A refusal (time up, part closed, attempt reset by the admin) is final: the entry is dropped.
         final = true;
-        if (op.k === 'sub') res = { submitted: true, scoreHidden: true, name: r.name };
+        if (op.k === 'sub') res = { submitted: true, scoreHidden: true, name: r.name, unconfirmed: e.message || 'Not confirmed' };
       }
       clearTimeout(limit); syncAbort[eid] = null;
       if (final) {
@@ -1290,7 +1290,7 @@ function prepareExam(eid, run) {
 // After submitting: shows "submitting" until everything on the device has reached the server, then the result.
 function finishScreen(eid, auto) {
   let alive = true;
-  app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res"><span class="kicker">${auto ? 'Time is up' : 'Exam finished'}</span><h1>Submitting…</h1><div class="res-spin"></div><p class="muted">Please keep this page open until you see that your answers have been received.</p>
+  app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res"><span class="kicker">${auto ? 'Time is up' : 'Exam finished'}</span><h1>Submitting…</h1><div class="res-spin"></div><div class="rc-wait">⚠ <b>Do not leave the exam hall yet.</b><br>Keep this page open until the green <b>“Answers received”</b> box appears.</div>
     <p class="muted" id="fs-left" dir="ltr"></p><button class="btn" id="fs-retry" type="button" hidden>Try again</button>
     <div id="em-box"></div></div></div>`;
   emailBox(eid);
@@ -1343,6 +1343,12 @@ function bindEmail(eid) {
   };
 }
 
+// The end of the exam: a box the trainee (and the proctor) can recognise at a glance.
+const receiptBox = (r) => r.unconfirmed
+  ? `<div class="rc rc-bad"><b>⚠ Submission not confirmed</b><span>Show this screen to the exam proctor before leaving.</span><small>${esc(r.unconfirmed)}</small></div>`
+  : `<div class="rc"><div class="rc-ok">✓</div><b>ANSWERS RECEIVED</b><span>Your exam is complete. You may now leave the exam hall.</span>
+    ${r.receipt ? `<div class="rc-code"><small>Receipt</small><code dir="ltr">${esc(r.receipt)}</code>${r.submittedAt ? `<small dir="ltr">${new Date(r.submittedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Riyadh' })}</small>` : ''}</div>` : ''}</div>`;
+
 function showResult(r, eid) {
   if (examCleanup) { examCleanup(); examCleanup = null; }
   if (lockTimer) { clearInterval(lockTimer); lockTimer = null; }
@@ -1350,8 +1356,7 @@ function showResult(r, eid) {
     app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res">
       <span class="kicker">${r.autoSubmitted ? 'Exam submitted automatically when time ran out' : 'Exam submitted'}</span>
       <h1>${esc(r.name || '')}</h1>
-      <div class="res-done">✓</div>
-      <p class="res-score">Your answers have been received.</p>
+      ${receiptBox(r)}
       <p class="muted">Results will be announced by the program. Thank you.</p>
       <div id="em-box"></div>
       <a class="btn" href="#">Back to the site</a></div></div>`;
@@ -1366,6 +1371,7 @@ function showResult(r, eid) {
     <p class="res-score">Score: <b>${r.percent} / 100</b></p>
     ${r.byPart && r.parts ? `<div class="res-parts">${r.parts.map((p) => r.byPart[p.id] ? `<div><span>${esc(p.title)}</span><b>${r.byPart[p.id].score}/${r.byPart[p.id].total}</b></div>` : '').join('')}</div>` : ''}<p class="muted">${r.score} correct out of ${r.total} questions</p>${band}
     <p class="muted">The correct answers are not shown. The program will review the results.</p>
+    ${receiptBox(r)}
     <div id="em-box"></div>
     <a class="btn" href="#">Back to the site</a></div></div>`;
   emailBox(eid);
@@ -1451,7 +1457,7 @@ async function viewExamAdmin(eid) {
       <small class="muted">${(e.roster || []).length ? `${e.roster.length} trainees on the list — only they can sit the exam (name + matching ID).` : 'No list: anyone with the password can sit the exam.'}</small></label>
     <div style="align-self:end"><button class="pri">Save settings</button></div></form><div id="e"></div></div>
   <div class="card" data-lock><div class="row" style="justify-content:space-between"><h3>Results</h3><button id="csv" data-free>Download CSV</button></div><div class="tw"><table class="stack"><tr class="hd"><th>Name</th><th>ID</th><th class="n">Score</th><th>Time used</th><th>Integrity</th><th></th></tr>
-    ${d.attempts.map((a) => `<tr><td class="ttl">${esc(a.name)}${a.email ? `<br><small class="muted">${esc(a.email)}</small>` : ''}</td><td data-label="ID">${esc(a.scfhs)}</td>
+    ${d.attempts.map((a) => `<tr><td class="ttl">${esc(a.name)}${a.receipt ? ` <code class="rc-adm" title="Receipt code shown to the trainee">${esc(a.receipt)}</code>` : ''}${a.email ? `<br><small class="muted">${esc(a.email)}</small>` : ''}</td><td data-label="ID">${esc(a.scfhs)}</td>
       <td class="n" data-label="Score">${a.submittedAt ? `<b>${a.score}/${a.total}</b> · ${a.percent}%${a.byPart && e.parts ? `<br><small class="muted">${e.parts.map((pt) => a.byPart[pt.id] ? `${esc(partShort(pt.title))}: ${a.byPart[pt.id].score}/${a.byPart[pt.id].total}` : '').join(' · ')}</small>` : ''}${a.autoSubmitted ? '<br><small class="muted">auto-submitted</small>' : ''}` : a.startedAt ? '<span class="tag t-late">In progress</span>' : '<span class="tag">Not started</span>'}</td>
       <td data-label="Time used">${a.submittedAt ? Math.round((new Date(a.submittedAt) - new Date(a.startedAt)) / 60000) + ' min' : a.startedAt ? `until ${fmt(a.deadline)}` : 'downloaded, not started'}</td>
       <td data-label="Integrity">${(a.focusLost || 0) ? `<span class="tag ${a.focusLost > 3 ? 't-closed' : 't-late'}">left page ${a.focusLost}×${a.awayMs ? ' · ' + mmss(a.awayMs) : ''}</span>${a.splitScreen ? ` <span class="tag t-closed">split screen ${a.splitScreen}×</span>` : ''}${awaySummary(e, a)}` : '<span class="tag t-done">OK</span>'}${(a.events || []).some((x) => ['copy', 'paste', 'print', 'devtools', 'contextmenu'].includes(x.type)) ? ' <span class="tag t-late">copy/print attempts</span>' : ''}${a.resumes ? ` <small class="muted">resumed ${a.resumes}×</small>` : ''}${a.lateSync ? ` <small class="muted" title="Answers saved on the device during a connection drop and received after the time limit">${a.lateSync} answer(s) synced late</small>` : ''}</td>

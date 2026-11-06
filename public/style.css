@@ -494,3 +494,15 @@ button.big{padding:14px;font-size:1.1rem}
 .phone-no .pn-ico{font-size:2.6rem}
 .phone-no b{font-size:1.15rem}
 .phone-no p{margin:0}
+/* end of exam: answers received */
+.rc{width:100%;box-sizing:border-box;background:#e3f2e4;border:2px solid #2f7a33;color:#1e4d22;border-radius:16px;padding:18px 16px;display:grid;gap:8px;justify-items:center;text-align:center}
+.rc>b{font-size:1.35rem;letter-spacing:.06em}
+.rc>span{font-size:1rem}
+.rc-ok{width:64px;height:64px;border-radius:50%;background:#2f7a33;color:#fff;display:grid;place-items:center;font-size:2.2rem;font-weight:700}
+.rc-code{display:flex;align-items:baseline;gap:10px;background:#fff;border-radius:10px;padding:6px 12px;margin-top:2px}
+.rc-code code{font:700 1.3rem ui-monospace,monospace;letter-spacing:.12em;color:#1c2b2c}
+.rc-code small{color:#56666a}
+.rc-bad{background:#fbe3e0;border-color:#b23a2e;color:#7a2a22}
+.rc-bad small{opacity:.8}
+.rc-wait{background:#fbefd9;color:#8f5300;border-radius:12px;padding:10px 12px;line-height:1.6}
+.rc-adm{font:700 .75rem ui-monospace,monospace;background:#e3f2e4;color:#1e4d22;border-radius:6px;padding:1px 6px;letter-spacing:.06em}
