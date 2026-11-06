@@ -474,3 +474,39 @@ test('exam taken fully offline: whole paper at start, late outbox accepted by an
     assert.equal(adm.attempts[0].lateSync, 2);
   } finally { srv.close(); }
 });
+
+test('exam download first, clock starts on begin (also when begin arrives late from the outbox)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, { body, cookie } = {}) => {
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', body: body && JSON.stringify(body), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) } });
+    return { status: r.status, data: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  try {
+    const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
+    await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(Date.now() - 6e4).toISOString(), closeAt: new Date(Date.now() + 2 * 36e5).toISOString() } });
+    const me = { name: 'Sara Ali Alqahtani', scfhs: '1000000098', password: 'AFHSR26', prepare: true };
+    const st = (await call('exam/t1/start', { body: me })).data;
+    assert.equal(st.begun, false);
+    assert.equal(st.deadline, null);
+    assert.equal(st.durationMin, 60);
+    assert.equal(st.parts.length, 2);
+    const { exam } = (await call('admin/exams/t1', { cookie: admin })).data;
+    const q = exam.items.find((x) => x.part === 'bio');
+    assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: q.id, optionId: q.answer, seq: 1, at: Date.now() } })).status, 409, 'not started yet');
+    // signing in again before starting gives the same download, still not started
+    const again = (await call('exam/t1/start', { body: me })).data;
+    assert.equal(again.token, st.token);
+    assert.equal(again.begun, false);
+    // Start pressed a moment ago (sent late from the outbox): the clock runs from that moment, never before the download
+    await new Promise((r) => setTimeout(r, 400));
+    const pressed = Date.now() - 300;
+    const b = (await call('exam/attempt/begin', { body: { token: st.token, at: pressed } })).data;
+    assert.ok(Math.abs(new Date(b.deadline).getTime() - (pressed + 60 * 6e4)) < 50);
+    const b2 = (await call('exam/attempt/begin', { body: { token: st.token, at: Date.now() } })).data;
+    assert.equal(b2.deadline, b.deadline, 'begin only counts once');
+    assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: q.id, optionId: q.answer, seq: 2, at: Date.now() } })).status, 200);
+  } finally { srv.close(); }
+});

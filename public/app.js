@@ -742,7 +742,7 @@ async function viewExamList() {
 async function viewExam(eid) {
   // An exam already started on this device opens straight away, with or without a connection.
   const local = runGet(eid);
-  if (local && !local.done) { document.body.classList.add('exam-on'); return runExam(eid, local); }
+  if (local && !local.done) { document.body.classList.add('exam-on'); return local.begun ? runExam(eid, local) : prepareExam(eid, local); }
   if (local && local.done && !local.result) { document.body.classList.add('exam-on'); return finishScreen(eid, local.auto); }
   const info = await api('exam/' + eid);
   document.body.classList.add('exam-on');
@@ -751,11 +751,11 @@ async function viewExam(eid) {
   const ar = info.roster && !(ME && ME.role === 'admin');
   const T = (en, arText) => (ar ? arText : en);
   const rules = ar ? [
-    `مدة الاختبار <b>${info.durationMin} دقيقة</b> تبدأ من لحظة الدخول، والوقت يستمر حتى لو أغلقت الصفحة، ويُسلَّم الاختبار تلقائياً عند انتهاء الوقت.`,
+    `بعد الدخول يُحمَّل الاختبار على جهازك أولاً. مدة الاختبار <b>${info.durationMin} دقيقة</b> تبدأ عند الضغط على "ابدأ"، والوقت يستمر حتى لو أغلقت الصفحة، ويُسلَّم الاختبار تلقائياً عند انتهاء الوقت.`,
     'محاولة واحدة لكل متدرب.',
     'ترتيب الأسئلة والخيارات مختلف لكل متدرب.',
     'ابقَ في صفحة الاختبار: الخروج منها أو التنقل بين التطبيقات أو النسخ يُسجَّل ويُرفع للبرنامج.',
-    info.showScore ? 'إجاباتك تُحفظ أولاً بأول، وتظهر لك درجتك في النهاية دون الإجابات الصحيحة.' : 'إجاباتك تُحفظ أولاً بأول. النتائج يعلنها البرنامج لاحقاً.'] : ['You have <b>' + info.durationMin + ' minutes</b> from the moment you start. The timer keeps running if you close the page; the exam is submitted automatically when time runs out.',
+    info.showScore ? 'إجاباتك تُحفظ أولاً بأول، وتظهر لك درجتك في النهاية دون الإجابات الصحيحة.' : 'إجاباتك تُحفظ أولاً بأول. النتائج يعلنها البرنامج لاحقاً.'] : ['After you sign in, the exam is first downloaded to your device. You have <b>' + info.durationMin + ' minutes</b> from the moment you press Start. The timer keeps running if you close the page; the exam is submitted automatically when time runs out.',
     'One attempt per ID number.',
     'Questions and choices appear in a different order for each trainee.',
     'Stay on this page: leaving it, switching apps or copying is recorded and reported to the program.',
@@ -765,6 +765,7 @@ async function viewExam(eid) {
       <div class="eg-facts"><div><b>${info.count}</b><span>${T('questions', 'سؤال')}</span></div><div><b>${info.durationMin}</b><span>${T('minutes', 'دقيقة')}</span></div><div><b>${new Date(info.openAt).toLocaleDateString(ar ? 'ar-SA-u-ca-gregory-nu-latn' : 'en-GB', { weekday: ar ? 'long' : 'short', day: 'numeric', month: ar ? 'long' : 'short', timeZone: 'Asia/Riyadh' })}</b><span>${new Date(info.openAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}–${new Date(info.closeAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}</span></div></div>
       ${ME && ME.role === 'admin' ? '<div class="box"><b>Admin preview</b>You can sit this exam now, whatever its dates. Your attempt is not counted in the results or the analysis, and starting again replaces it.</div>' : ''}
       <div id="eg-state"></div>
+      ${deviceLine(ar)}
       <ul class="ticks">${rules.map((r) => `<li>${r}</li>`).join('')}</ul>
       <form id="ef" class="list">
         <button type="button" class="eg-pw" id="pwbtn">🔒 ${T('Enter the exam password', 'أدخل كلمة مرور الاختبار')}</button>
@@ -841,12 +842,13 @@ async function viewExam(eid) {
     if (!pw) return askPassword();
     btn.disabled = true; btn.textContent = ar ? 'جارٍ البدء…' : 'Starting…';
     try {
-      const body = { name: f.name.value, scfhs: f.scfhs?.value, nid: f.nid?.value, password: pw };
+      const body = { name: f.name.value, scfhs: f.scfhs?.value, nid: f.nid?.value, password: pw, prepare: true };
       const r = await api(`exam/${eid}/start`, { body });
       if (body.scfhs) examStore(eid, { name: body.name, scfhs: body.scfhs });
       clearInterval(gt);
       if (r.submitted) return showResult(r);
-      runExam(eid, runFrom(eid, r));
+      const run = runFrom(eid, r, { ar });
+      return run.begun ? runExam(eid, run) : prepareExam(eid, run);
     } catch (e) { errBox(ar ? arMsg(e.message) : e); btn.disabled = false; btn.textContent = label; }
   };
 }
@@ -891,7 +893,7 @@ function syncExam(eid) {
       const op = r && r.ops && r.ops[0];
       if (!op) break;
       const body = { token: r.token, at: op.at };
-      const path = op.k === 'a' ? 'answer' : op.k === 'np' ? 'next-part' : 'submit';
+      const path = { a: 'answer', np: 'next-part', b: 'begin', sub: 'submit' }[op.k];
       if (op.k === 'a') Object.assign(body, { itemId: op.itemId, optionId: op.optionId, seq: op.seq });
       if (op.k === 'np') body.from = op.from;
       let res = null, final = false;
@@ -918,17 +920,20 @@ window.addEventListener('online', () => { Object.values(syncWake).forEach((f) =>
 syncAllExams();
 
 // Builds (or continues) the device copy of an attempt from the server's start answer.
-function runFrom(eid, st) {
+function runFrom(eid, st, opts = {}) {
   const old = runGet(eid);
   const parts = st.parts || [{ index: 0, title: st.part?.title || '', questions: st.questions }];
   const offset = (st.serverNow || Date.now()) - Date.now();
+  const deadline = st.deadline ? new Date(st.deadline).getTime() : null;
   if (old && old.token === st.token && !old.done) {
-    Object.assign(old, { parts, deadline: new Date(st.deadline).getTime(), offset });
+    Object.assign(old, { parts, offset, durationMin: st.durationMin || old.durationMin, closeAt: st.closeAt === undefined ? old.closeAt : st.closeAt });
+    // Started on the server, or already started on this device (its clock is the one that counts).
+    if (deadline && !old.begun) { old.begun = true; old.deadline = deadline; }
     old.partIndex = Math.max(old.partIndex || 0, st.partIndex || 0);
     old.ans = { ...(st.answers || {}), ...old.ans };
     runSet(old); return old;
   }
-  const r = { eid, token: st.token, name: st.name, title: st.title, deadline: new Date(st.deadline).getTime(), offset, parts,
+  const r = { eid, token: st.token, name: st.name, title: st.title, deadline, begun: st.begun !== false, durationMin: st.durationMin, closeAt: st.closeAt, ar: !!opts.ar, offset, parts,
     partIndex: st.partIndex || 0, ans: { ...(st.answers || {}) }, flagged: [], cur: -1, done: false, ops: [], seq: Date.now(), opSeq: 0 };
   runSet(r); return r;
 }
@@ -1074,6 +1079,95 @@ function runExam(eid, run) {
   draw(); tick();
 }
 
+// ---------- Download before the start ----------
+// What a browser needs for the exam to keep working with no connection, even after a reload.
+const OFFLINE_CACHE = 'pm-site-v1'; // same name as in sw.js
+const OFFLINE_FILES = ['./', 'index.html', 'app.js', 'calc.js', 'content.js', 'style.css', 'brand/shield.png', 'brand/shield-white.png', 'brand/favicon.png', 'brand/logo.png'];
+function offlineSupport() {
+  const ua = navigator.userAgent || '';
+  let storage = false;
+  try { localStorage.setItem('__t', '1'); localStorage.removeItem('__t'); storage = true; } catch {}
+  const inApp = /FBAN|FBAV|Instagram|Snapchat|Line\/|TikTok|musical_ly|GSA\//i.test(ua);
+  const sw = window.isSecureContext && 'serviceWorker' in navigator && 'caches' in window;
+  return { storage, inApp, sw, full: storage && sw && !inApp };
+}
+function deviceLine(ar) {
+  const d = offlineSupport();
+  const T = (en, a) => (ar ? a : en);
+  if (d.full) return `<div class="dev ok">✓ ${T('This device supports taking the exam without internet after it is downloaded.', 'هذا الجهاز يدعم حل الاختبار بدون إنترنت بعد تحميله.')}</div>`;
+  return `<div class="dev bad">⚠ ${T('This browser cannot keep the exam if the page is reloaded without internet. Open the link in Safari (iPhone/iPad) or Chrome (Android/computer), not inside another app or a private window.', 'هذا المتصفح لا يحفظ الاختبار إذا أُعيد تحميل الصفحة بدون إنترنت. افتح الرابط في Safari (آيفون/آيباد) أو Chrome (أندرويد/كمبيوتر)، وليس داخل تطبيق آخر أو نافذة تصفح خاص.')}</div>`;
+}
+
+function prepareExam(eid, run) {
+  const ar = run.ar, T = (en, a) => (ar ? a : en);
+  const nQ = run.parts.reduce((n, p) => n + p.questions.length, 0);
+  const imgs = [...new Set(run.parts.flatMap((p) => p.questions.flatMap((q) => q.images || [])))];
+  const dev = offlineSupport();
+  let alive = true;
+  examCleanup = () => { alive = false; };
+  app.innerHTML = `<div class="exam-gate"><div class="eg-card ${ar ? 'ar-card' : ''}" ${ar ? 'dir="rtl"' : ''}>
+    <span class="kicker">${esc(run.title)}</span><h1 id="pp-h">${T('Downloading the exam…', 'جارٍ تحميل الاختبار…')}</h1>
+    <div class="pp-bar"><i id="pp-bar"></i></div><p class="pp-pct" id="pp-pct" dir="ltr">0%</p>
+    <ul class="pp-steps">
+      <li id="pp-q"><span></span>${T(`Questions (${nQ})`, `الأسئلة (${nQ})`)}</li>
+      <li id="pp-i"><span></span>${T(`Figures (${imgs.length})`, `الصور والمنحنيات (${imgs.length})`)} <small id="pp-in" dir="ltr"></small></li>
+      <li id="pp-f"><span></span>${T('Exam pages saved for use without internet', 'حفظ صفحات الاختبار للعمل بدون إنترنت')}</li>
+      <li id="pp-s"><span></span>${T('Saved on this device', 'الحفظ على هذا الجهاز')}</li>
+    </ul>
+    <div id="pp-ready"></div>
+    <p class="muted pp-note">${T(`The ${run.durationMin} minutes start only when you press Start.`, `مدة الاختبار ${run.durationMin} دقيقة ولا يبدأ احتسابها إلا عند الضغط على "ابدأ".`)}</p>
+  </div></div>`;
+  const total = 1 + imgs.length + OFFLINE_FILES.length + 1;
+  let doneUnits = 0;
+  const bump = (n = 1) => { doneUnits += n; const pc = Math.round((doneUnits / total) * 100); if ($('#pp-bar')) { $('#pp-bar').style.width = pc + '%'; $('#pp-pct').textContent = pc + '%'; } };
+  const mark = (id, state) => { const el = $('#' + id); if (el) el.className = state; };
+  const loadImg = (src) => new Promise((ok) => { const im = new Image(); im.onload = () => ok(true); im.onerror = () => ok(false); im.src = src; });
+  (async () => {
+    // 1. questions are already here (sent with the sign-in)
+    mark('pp-q', 'ok'); bump();
+    // 2. figures
+    mark('pp-i', 'run');
+    let gotImgs = 0, badImgs = 0;
+    await Promise.all(imgs.map(async (src) => { let ok = false; for (let i = 0; i < 3 && !ok; i++) ok = await loadImg(src + (i ? `?r=${i}` : '')); ok ? gotImgs++ : badImgs++; bump(); if ($('#pp-in')) $('#pp-in').textContent = `${gotImgs}/${imgs.length}`; }));
+    mark('pp-i', badImgs ? 'bad' : 'ok');
+    // 3. the site's own files, kept for a reload with no connection
+    mark('pp-f', 'run');
+    let filesOk = false;
+    if (dev.sw) {
+      try {
+        await Promise.race([navigator.serviceWorker.ready, wait(8000)]);
+        const c = await caches.open(OFFLINE_CACHE);
+        let bad = 0;
+        await Promise.all([...OFFLINE_FILES, ...imgs].map(async (u) => { try { if (!(await c.match(u))) await c.add(u); } catch { if (OFFLINE_FILES.includes(u)) bad++; } if (OFFLINE_FILES.includes(u)) bump(); }));
+        filesOk = !bad;
+      } catch { bump(OFFLINE_FILES.length); }
+    } else bump(OFFLINE_FILES.length);
+    mark('pp-f', filesOk ? 'ok' : 'warn');
+    // 4. the attempt itself is stored on the device
+    const saved = runGet(eid);
+    const savedOk = !!(saved && saved.token === run.token && saved.parts?.length);
+    mark('pp-s', savedOk ? 'ok' : 'bad'); bump();
+    if (!alive) return;
+    const ready = !badImgs && savedOk;
+    $('#pp-h').textContent = ready ? T('The exam is downloaded and ready', 'تم تحميل الاختبار وهو جاهز') : T('Download incomplete', 'التحميل غير مكتمل');
+    $('#pp-ready').innerHTML = `${ready ? `<div class="res-done">✓</div>` : `<div class="err">${T('Some parts did not download. Check the internet connection and try again.', 'لم يكتمل تحميل بعض الأجزاء. تأكد من الاتصال بالإنترنت وأعد المحاولة.')}</div><button class="btn" id="pp-retry" type="button">${T('Try again', 'إعادة المحاولة')}</button>`}
+      ${filesOk ? '' : `<div class="dev bad">⚠ ${T('This browser will not reopen the exam if the page is reloaded without internet. Do not close or reload the page during the exam.', 'هذا المتصفح لن يعيد فتح الاختبار إذا أُعيد تحميل الصفحة بدون إنترنت. لا تغلق الصفحة ولا تعيد تحميلها أثناء الاختبار.')}</div>`}
+      <button class="pri big" id="pp-go" type="button" ${ready ? '' : 'disabled'}>${T('Start the exam', 'ابدأ الاختبار')}</button>`;
+    if ($('#pp-retry')) $('#pp-retry').onclick = () => prepareExam(eid, runGet(eid) || run);
+    $('#pp-go').onclick = () => {
+      const r = runGet(eid) || run;
+      if (r.begun) return runExam(eid, r);
+      const start = runNow(r);
+      r.begun = true;
+      r.deadline = Math.min(start + r.durationMin * 60000, r.closeAt ? new Date(r.closeAt).getTime() : Infinity);
+      r.ops = r.ops || [];
+      runPush(r, { k: 'b' });
+      syncExam(eid);
+      runExam(eid, r);
+    };
+  })();
+}
+
 // After submitting: shows "submitting" until everything on the device has reached the server, then the result.
 function finishScreen(eid, auto) {
   let alive = true;
@@ -1182,8 +1276,8 @@ async function viewExamAdmin(eid) {
     <div style="align-self:end"><button class="pri">Save settings</button></div></form><div id="e"></div></div>
   <div class="card" data-lock><div class="row" style="justify-content:space-between"><h3>Results</h3><button id="csv" data-free>Download CSV</button></div><div class="tw"><table class="stack"><tr class="hd"><th>Name</th><th>ID</th><th class="n">Score</th><th>Time used</th><th>Integrity</th><th></th></tr>
     ${d.attempts.map((a) => `<tr><td class="ttl">${esc(a.name)}</td><td data-label="ID">${esc(a.scfhs)}</td>
-      <td class="n" data-label="Score">${a.submittedAt ? `<b>${a.score}/${a.total}</b> · ${a.percent}%${a.byPart && e.parts ? `<br><small class="muted">${e.parts.map((pt) => a.byPart[pt.id] ? `${esc(partShort(pt.title))}: ${a.byPart[pt.id].score}/${a.byPart[pt.id].total}` : '').join(' · ')}</small>` : ''}${a.autoSubmitted ? '<br><small class="muted">auto-submitted</small>' : ''}` : '<span class="tag t-late">In progress</span>'}</td>
-      <td data-label="Time used">${a.submittedAt ? Math.round((new Date(a.submittedAt) - new Date(a.startedAt)) / 60000) + ' min' : `until ${fmt(a.deadline)}`}</td>
+      <td class="n" data-label="Score">${a.submittedAt ? `<b>${a.score}/${a.total}</b> · ${a.percent}%${a.byPart && e.parts ? `<br><small class="muted">${e.parts.map((pt) => a.byPart[pt.id] ? `${esc(partShort(pt.title))}: ${a.byPart[pt.id].score}/${a.byPart[pt.id].total}` : '').join(' · ')}</small>` : ''}${a.autoSubmitted ? '<br><small class="muted">auto-submitted</small>' : ''}` : a.startedAt ? '<span class="tag t-late">In progress</span>' : '<span class="tag">Not started</span>'}</td>
+      <td data-label="Time used">${a.submittedAt ? Math.round((new Date(a.submittedAt) - new Date(a.startedAt)) / 60000) + ' min' : a.startedAt ? `until ${fmt(a.deadline)}` : 'downloaded, not started'}</td>
       <td data-label="Integrity">${(a.focusLost || 0) ? `<span class="tag ${a.focusLost > 3 ? 't-closed' : 't-late'}">left page ${a.focusLost}×</span>` : '<span class="tag t-done">OK</span>'}${(a.events || []).some((x) => ['copy', 'paste', 'print', 'devtools', 'contextmenu'].includes(x.type)) ? ' <span class="tag t-late">copy/print attempts</span>' : ''}${a.resumes ? ` <small class="muted">resumed ${a.resumes}×</small>` : ''}${a.lateSync ? ` <small class="muted" title="Answers saved on the device during a connection drop and received after the time limit">${a.lateSync} answer(s) synced late</small>` : ''}</td>
       <td><div class="row"><button data-view="${a.id}" data-free>Answers</button><button class="bad" data-del="${a.id}">Reset</button></div></td></tr>`).join('') || '<tr><td class="muted">No attempts yet.</td></tr>'}</table></div></div>
   <div class="card" data-lock><h3>Questions, key and item analysis</h3>

@@ -430,3 +430,25 @@ button.big{padding:14px;font-size:1.1rem}
 #pwf input{font-size:1.2rem;letter-spacing:.15em;text-align:center}
 .res-spin{width:56px;height:56px;border-radius:50%;border:5px solid var(--acs);border-top-color:var(--ac);animation:spin 1s linear infinite;margin:10px auto}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* exam download screen and device check */
+.dev{border-radius:10px;padding:9px 12px;font-size:.92rem;line-height:1.5}
+.dev.ok{background:var(--acs);color:#1f5a22}
+.dev.bad{background:var(--was);color:var(--wa)}
+.pp-bar{height:12px;border-radius:99px;background:var(--acs);overflow:hidden}
+.pp-bar i{display:block;height:100%;width:0;background:var(--ac);border-radius:99px;transition:width .3s}
+.pp-pct{text-align:center;font:700 1.4rem ui-monospace,monospace;margin:4px 0 0;color:var(--ac)}
+.pp-steps{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+.pp-steps li{display:flex;align-items:center;gap:10px;color:var(--mu)}
+.pp-steps li span{width:22px;height:22px;border-radius:50%;border:2px solid var(--ln);flex:none;display:grid;place-items:center;font-size:.8rem;font-weight:700}
+.pp-steps li.run{color:var(--ink)}
+.pp-steps li.run span{border-color:var(--acs);border-top-color:var(--ac);animation:spin 1s linear infinite}
+.pp-steps li.ok{color:var(--ink)}
+.pp-steps li.ok span{background:var(--ac);border-color:var(--ac);color:#fff}
+.pp-steps li.ok span::after{content:"✓"}
+.pp-steps li.warn span{background:var(--wa);border-color:var(--wa);color:#fff}
+.pp-steps li.warn span::after{content:"!"}
+.pp-steps li.bad span{background:var(--bad);border-color:var(--bad);color:#fff}
+.pp-steps li.bad span::after{content:"✕"}
+.pp-steps small{margin-inline-start:auto;font-family:ui-monospace,monospace}
+.pp-note{text-align:center;font-size:.9rem}
+#pp-ready{display:grid;gap:10px}
