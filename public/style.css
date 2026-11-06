@@ -423,3 +423,10 @@ button.big{padding:14px;font-size:1.1rem}
   .cx-keys button{padding:7px 0;font-size:.95rem}
   .cx-keys .f{font-size:.85rem}
 }
+/* exam password pop-up and submitting spinner */
+.eg-pw{width:100%;padding:12px;border-radius:10px;border:1.5px dashed var(--ac);background:var(--acs);color:var(--ac);font:600 1rem inherit}
+.eg-pw.ok{border-style:solid;cursor:default;opacity:1}
+#pwf{min-width:min(340px,80vw)}
+#pwf input{font-size:1.2rem;letter-spacing:.15em;text-align:center}
+.res-spin{width:56px;height:56px;border-radius:50%;border:5px solid var(--acs);border-top-color:var(--ac);animation:spin 1s linear infinite;margin:10px auto}
+@keyframes spin{to{transform:rotate(360deg)}}

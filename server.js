@@ -41,7 +41,7 @@ function serveStatic(res, pathname) {
 }
 
 function createApp(opts = {}) {
-  const store = new FileStore(opts.dataDir || process.env.DATA_DIR || path.join(__dirname, 'data'));
+  const store = opts.store || new FileStore(opts.dataDir || process.env.DATA_DIR || path.join(__dirname, 'data'));
   const handle = createCore({
     store,
     adminEmail: opts.adminEmail || process.env.ADMIN_EMAIL,
