@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { evaluate: ev, fmt, stats, parseList } = require('../public/calc.js');
+const { evaluate: ev, fmt, stats, parseList, toFraction, pretty } = require('../public/calc.js');
 
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} ≠ ${b}`);
 
@@ -43,15 +43,30 @@ test('calculator: exam-style calculations', () => {
   assert.equal(ev('√144'), 12);
 });
 
-test('statistics helper', () => {
+test('statistics helper (1-Var Stats as on the TI-30XS)', () => {
   const r = stats(parseList('65, 72, 68, 80, 70'));
   assert.equal(r.n, 5);
   assert.equal(r.mean, 71);
   assert.equal(r.median, 70);
-  near(r.varS, 32);
+  assert.equal(r.sum, 355);
   near(r.sd, Math.sqrt(32));
-  assert.deepEqual(stats(parseList('1 2 2 3\n3')).mode, [2, 3]);
+  near(r.sdP, Math.sqrt(128 / 5));
+  assert.deepEqual([r.min, r.q1, r.q3, r.max], [65, 66.5, 76, 80]);
   assert.equal(stats(parseList('4 1 3 2')).median, 2.5);
   assert.deepEqual(parseList('١٢، 5;6'), [12, 5, 6]);
   assert.equal(stats([]), null);
+  assert.equal('mode' in r || 'cv' in r || 'ciLo' in r, false, 'only what an approved exam calculator shows');
+});
+
+test('fractions: entry, display and F<>D conversion', () => {
+  assert.equal(ev('(3)/(8)'), 0.375);
+  assert.deepEqual(toFraction(0.375), { n: 3, d: 8 });
+  assert.deepEqual(toFraction(ev('1/3+1/6')), { n: 1, d: 2 });
+  assert.deepEqual(toFraction(-0.25), { n: -1, d: 4 });
+  assert.equal(toFraction(2), null);
+  assert.equal(toFraction(Math.PI), null);
+  assert.equal(ev('2^-1'), 0.5);
+  assert.match(pretty('(5)/(20)'), /class="mf".*5.*20/);
+  assert.match(pretty('20/(1000×0.4−1)'), /<span class="mn">20<\/span><span class="md">1000 × 0.4 − 1<\/span>/);
+  assert.match(pretty('√(144)'), /class="mr"/);
 });
