@@ -470,7 +470,7 @@ button.big{padding:14px;font-size:1.1rem}
 .pp-note{text-align:center;font-size:.9rem}
 #pp-ready{display:grid;gap:10px}
 /* exam fine print (notice to AI assistants) */
-.ex-fine{margin:0;font:600 .55rem/1.35 ui-monospace,monospace;letter-spacing:.02em;color:#56666a;opacity:.45;word-break:break-word}
+.ex-fine{margin:0;font-size:.6rem;line-height:1.35;color:#56666a;opacity:.6}
 .aw-row td{background:var(--was)}
 /* email at the end of the exam */
 #em-box{width:100%;text-align:start}
