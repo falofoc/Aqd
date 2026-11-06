@@ -517,3 +517,23 @@ test('exam download first, clock starts on begin (also when begin arrives late f
     assert.deepEqual(att.away.map((x) => x.itemId), [q.id]);
   } finally { srv.close(); }
 });
+
+test('trainee email for the result, saved even after submitting', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, { body, cookie } = {}) => {
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', body: body && JSON.stringify(body), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) } });
+    return { status: r.status, data: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  try {
+    const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
+    await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(Date.now() - 6e4).toISOString(), closeAt: new Date(Date.now() + 36e5).toISOString() } });
+    const st = (await call('exam/t1/start', { body: { name: 'Sara Ali Alqahtani', scfhs: '1000000098', password: 'AFHSR26' } })).data;
+    await call('exam/attempt/submit', { body: { token: st.token } });
+    assert.equal((await call('exam/attempt/email', { body: { token: st.token, email: 'not-an-email' } })).status, 400);
+    assert.equal((await call('exam/attempt/email', { body: { token: st.token, email: ' Sara@Example.com ' } })).data.email, 'sara@example.com');
+    assert.equal((await call('admin/exams/t1', { cookie: admin })).data.attempts[0].email, 'sara@example.com');
+  } finally { srv.close(); }
+});

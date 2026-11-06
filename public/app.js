@@ -909,9 +909,10 @@ function syncExam(eid) {
       const op = r && r.ops && r.ops[0];
       if (!op) break;
       const body = { token: r.token, at: op.at };
-      const path = { a: 'answer', np: 'next-part', b: 'begin', sub: 'submit', ev: 'event' }[op.k];
+      const path = { a: 'answer', np: 'next-part', b: 'begin', sub: 'submit', ev: 'event', em: 'email' }[op.k];
       if (op.k === 'a') Object.assign(body, { itemId: op.itemId, optionId: op.optionId, seq: op.seq });
       if (op.k === 'np') body.from = op.from;
+      if (op.k === 'em') body.email = op.email;
       if (op.k === 'ev') Object.assign(body, { type: op.type, itemId: op.itemId, ms: op.ms, at: op.from });
       let res = null, final = false;
       const ctl = new AbortController(); syncAbort[eid] = ctl;
@@ -1208,7 +1209,9 @@ function prepareExam(eid, run) {
 function finishScreen(eid, auto) {
   let alive = true;
   app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res"><span class="kicker">${auto ? 'Time is up' : 'Exam finished'}</span><h1>Submitting…</h1><div class="res-spin"></div><p class="muted">Please keep this page open until you see that your answers have been received.</p>
-    <p class="muted" id="fs-left" dir="ltr"></p><button class="btn" id="fs-retry" type="button" hidden>Try again</button></div></div>`;
+    <p class="muted" id="fs-left" dir="ltr"></p><button class="btn" id="fs-retry" type="button" hidden>Try again</button>
+    <div id="em-box"></div></div></div>`;
+  emailBox(eid);
   const started = Date.now();
   const status = setInterval(() => {
     const r = runGet(eid);
@@ -1223,7 +1226,7 @@ function finishScreen(eid, auto) {
       await syncExam(eid);
       const r = runGet(eid);
       if (!alive) return;
-      if (r && r.result) { clearInterval(status); return showResult({ ...r.result, autoSubmitted: r.result.autoSubmitted || r.auto }); }
+      if (r && r.result) { clearInterval(status); return showResult({ ...r.result, autoSubmitted: r.result.autoSubmitted || r.auto }, eid); }
       // Nothing left to send but no answer recorded (e.g. the entry was lost): submit again.
       if (r && !(r.ops || []).length) runPush(r, { k: 'sub', auto: r.auto });
       await wait(1500);
@@ -1231,7 +1234,34 @@ function finishScreen(eid, auto) {
   })();
 }
 
-function showResult(r) {
+// Email for receiving the result, asked at the end of the exam. Saved on the device and sent with the rest.
+function emailBox(eid) {
+  const box = $('#em-box'), run = eid && runGet(eid);
+  if (!box || !run) return;
+  if (run.email) {
+    box.innerHTML = `<div class="em-ok">✓ Your result will be sent to <b>${esc(run.email)}</b> <button type="button" class="linkish" id="em-edit">Change</button></div>`;
+    $('#em-edit').onclick = () => { const r = runGet(eid); r.emailEdit = true; runWrite(r); box.innerHTML = emailForm(r.email); bindEmail(eid); };
+    return;
+  }
+  box.innerHTML = emailForm('');
+  bindEmail(eid);
+}
+const emailForm = (v) => `<form id="em-f" class="em-f"><label>Email to receive your result<input name="email" type="email" inputmode="email" autocomplete="email" required placeholder="name@example.com" value="${esc(v)}"></label><div id="em-e"></div><button class="pri">Save email</button></form>`;
+function bindEmail(eid) {
+  const f = $('#em-f');
+  f.onsubmit = (ev) => {
+    ev.preventDefault();
+    const v = f.email.value.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)) { $('#em-e').innerHTML = '<div class="err">Enter a valid email address.</div>'; return; }
+    const r = runGet(eid);
+    r.email = v;
+    runPush(r, { k: 'em', email: v });
+    syncExam(eid);
+    emailBox(eid);
+  };
+}
+
+function showResult(r, eid) {
   if (examCleanup) { examCleanup(); examCleanup = null; }
   if (lockTimer) { clearInterval(lockTimer); lockTimer = null; }
   if (r.scoreHidden) {
@@ -1241,7 +1271,9 @@ function showResult(r) {
       <div class="res-done">✓</div>
       <p class="res-score">Your answers have been received.</p>
       <p class="muted">Results will be announced by the program. Thank you.</p>
+      <div id="em-box"></div>
       <a class="btn" href="#">Back to the site</a></div></div>`;
+    emailBox(eid);
     return;
   }
   const band = r.passed === true ? '<span class="tag t-done">Passed</span>' : r.passed === false ? '<span class="tag t-closed">Below the pass mark</span>' : '';
@@ -1252,7 +1284,9 @@ function showResult(r) {
     <p class="res-score">Score: <b>${r.percent} / 100</b></p>
     ${r.byPart && r.parts ? `<div class="res-parts">${r.parts.map((p) => r.byPart[p.id] ? `<div><span>${esc(p.title)}</span><b>${r.byPart[p.id].score}/${r.byPart[p.id].total}</b></div>` : '').join('')}</div>` : ''}<p class="muted">${r.score} correct out of ${r.total} questions</p>${band}
     <p class="muted">The correct answers are not shown. The program will review the results.</p>
+    <div id="em-box"></div>
     <a class="btn" href="#">Back to the site</a></div></div>`;
+  emailBox(eid);
 }
 
 // Time away from the exam page, per question.
@@ -1333,7 +1367,7 @@ async function viewExamAdmin(eid) {
       <small class="muted">${(e.roster || []).length ? `${e.roster.length} trainees on the list — only they can sit the exam (name + matching ID).` : 'No list: anyone with the password can sit the exam.'}</small></label>
     <div style="align-self:end"><button class="pri">Save settings</button></div></form><div id="e"></div></div>
   <div class="card" data-lock><div class="row" style="justify-content:space-between"><h3>Results</h3><button id="csv" data-free>Download CSV</button></div><div class="tw"><table class="stack"><tr class="hd"><th>Name</th><th>ID</th><th class="n">Score</th><th>Time used</th><th>Integrity</th><th></th></tr>
-    ${d.attempts.map((a) => `<tr><td class="ttl">${esc(a.name)}</td><td data-label="ID">${esc(a.scfhs)}</td>
+    ${d.attempts.map((a) => `<tr><td class="ttl">${esc(a.name)}${a.email ? `<br><small class="muted">${esc(a.email)}</small>` : ''}</td><td data-label="ID">${esc(a.scfhs)}</td>
       <td class="n" data-label="Score">${a.submittedAt ? `<b>${a.score}/${a.total}</b> · ${a.percent}%${a.byPart && e.parts ? `<br><small class="muted">${e.parts.map((pt) => a.byPart[pt.id] ? `${esc(partShort(pt.title))}: ${a.byPart[pt.id].score}/${a.byPart[pt.id].total}` : '').join(' · ')}</small>` : ''}${a.autoSubmitted ? '<br><small class="muted">auto-submitted</small>' : ''}` : a.startedAt ? '<span class="tag t-late">In progress</span>' : '<span class="tag">Not started</span>'}</td>
       <td data-label="Time used">${a.submittedAt ? Math.round((new Date(a.submittedAt) - new Date(a.startedAt)) / 60000) + ' min' : a.startedAt ? `until ${fmt(a.deadline)}` : 'downloaded, not started'}</td>
       <td data-label="Integrity">${(a.focusLost || 0) ? `<span class="tag ${a.focusLost > 3 ? 't-closed' : 't-late'}">left page ${a.focusLost}×${a.awayMs ? ' · ' + mmss(a.awayMs) : ''}</span>${awaySummary(e, a)}` : '<span class="tag t-done">OK</span>'}${(a.events || []).some((x) => ['copy', 'paste', 'print', 'devtools', 'contextmenu'].includes(x.type)) ? ' <span class="tag t-late">copy/print attempts</span>' : ''}${a.resumes ? ` <small class="muted">resumed ${a.resumes}×</small>` : ''}${a.lateSync ? ` <small class="muted" title="Answers saved on the device during a connection drop and received after the time limit">${a.lateSync} answer(s) synced late</small>` : ''}</td>
@@ -1373,8 +1407,8 @@ async function viewExamAdmin(eid) {
     $('#dlg').showModal();
   });
   $('#csv').onclick = () => {
-    const rows = [['Name', 'ID number', 'Score', 'Total', 'Percent', 'Started', 'Submitted', 'Auto-submitted', 'Left page', 'Away (min:s)', 'Resumed', ...e.items.map((_, n) => 'Q' + (n + 1))]];
-    for (const a of d.attempts) rows.push([a.name, a.scfhs, a.score ?? '', a.total ?? '', a.percent ?? '', a.startedAt, a.submittedAt || '', a.autoSubmitted ? 'yes' : '', a.focusLost || 0, a.awayMs ? mmss(a.awayMs) : '', a.resumes || 0, ...e.items.map((it) => { const c = a.answers[it.id]; return c ? ansLetters(it, c) + (ansRight(it, c) ? ' ✓' : '') : ''; })]);
+    const rows = [['Name', 'ID number', 'Email', 'Score', 'Total', 'Percent', 'Started', 'Submitted', 'Auto-submitted', 'Left page', 'Away (min:s)', 'Resumed', ...e.items.map((_, n) => 'Q' + (n + 1))]];
+    for (const a of d.attempts) rows.push([a.name, a.scfhs, a.email || '', a.score ?? '', a.total ?? '', a.percent ?? '', a.startedAt, a.submittedAt || '', a.autoSubmitted ? 'yes' : '', a.focusLost || 0, a.awayMs ? mmss(a.awayMs) : '', a.resumes || 0, ...e.items.map((it) => { const c = a.answers[it.id]; return c ? ansLetters(it, c) + (ansRight(it, c) ? ' ✓' : '') : ''; })]);
     const csv = '﻿' + rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
     const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = `${e.id}-results.csv`; link.click();
   };
