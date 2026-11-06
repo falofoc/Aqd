@@ -200,9 +200,8 @@
     ['0', '0'], ['.', '.'], ['E', 'EXP'], ['+', '+'], ['=', '='],
   ];
   let el = null, state = { ans: 0, hist: [], tab: 'calc', list: '', flip: false, last: null }, justEq = false;
-  // As on the TI-30XS: a result is shown as a fraction when the calculation has a fraction and no decimals;
-  // F◄►D switches the result on screen between fraction and decimal.
-  const autoFrac = (src) => !/\d*\.\d/.test(src) && /[/÷]|\^-1/.test(src);
+  // Results are shown as decimals; F◄►D switches the result on screen to a fraction (when it is one) and back.
+  const autoFrac = () => false;
   const inp = () => el.querySelector('.cx-in');
   const closeParens = (s) => s + ')'.repeat(Math.max(0, (s.match(/\(/g) || []).length - (s.match(/\)/g) || []).length));
 
