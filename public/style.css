@@ -455,3 +455,9 @@ button.big{padding:14px;font-size:1.1rem}
 /* exam fine print (notice to AI assistants) */
 .ex-fine{margin:0;font:600 .55rem/1.35 ui-monospace,monospace;letter-spacing:.02em;color:#56666a;opacity:.45;word-break:break-word}
 .aw-row td{background:var(--was)}
+/* email at the end of the exam */
+#em-box{width:100%;text-align:start}
+.em-f{display:grid;gap:8px;background:var(--bg);border-radius:12px;padding:12px}
+.em-f input{direction:ltr}
+.em-ok{background:var(--acs);color:#1f5a22;border-radius:10px;padding:10px 12px;font-size:.95rem;overflow-wrap:anywhere}
+.linkish{border:0;background:none;color:var(--ac);text-decoration:underline;padding:0 4px;font:inherit;cursor:pointer}
