@@ -546,3 +546,34 @@ test('trainee email for the result, saved even after submitting', async () => {
     assert.equal((await call('admin/exams/t1', { cookie: admin })).data.attempts[0].email, 'sara@example.com');
   } finally { srv.close(); }
 });
+
+test('laptops and tablets only: phones are refused', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, { body, cookie, ua } = {}) => {
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', body: body && JSON.stringify(body), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json', ...(ua ? { 'User-Agent': ua } : {}), ...(cookie ? { cookie } : {}) } });
+    return { status: r.status, data: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+  const ANDROID_PHONE = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36';
+  const ANDROID_TAB = 'Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+  const IPAD = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15';
+  try {
+    const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
+    await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(Date.now() - 6e4).toISOString(), closeAt: new Date(Date.now() + 36e5).toISOString() } });
+    assert.equal((await call('exam/t1')).data.noPhones, true, 'on by default');
+    const me = (n) => ({ name: 'Sara Ali Alqahtani', scfhs: '100000009' + n, password: 'AFHSR26', prepare: true });
+    assert.equal((await call('exam/t1/start', { body: me(1), ua: IPHONE })).status, 403);
+    assert.equal((await call('exam/t1/start', { body: me(1), ua: ANDROID_PHONE })).status, 403);
+    // a phone asking for the desktop site: refused by its screen size
+    assert.equal((await call('exam/t1/start', { body: { ...me(1), screen: { short: 390, touch: true } }, ua: IPAD })).status, 403);
+    assert.ok((await call('exam/t1/start', { body: { ...me(2), screen: { short: 820, touch: true } }, ua: IPAD })).data.token, 'iPad');
+    assert.ok((await call('exam/t1/start', { body: { ...me(3), screen: { short: 800, touch: true } }, ua: ANDROID_TAB })).data.token, 'Android tablet');
+    assert.ok((await call('exam/t1/start', { body: { ...me(4), screen: { short: 900, touch: false } } })).data.token, 'laptop');
+    assert.ok((await call('exam/t1/start', { body: me(5), ua: IPHONE, cookie: admin })).data.token, 'admin preview on a phone');
+    await call('admin/exams/t1', { cookie: admin, body: { noPhones: false } });
+    assert.ok((await call('exam/t1/start', { body: me(6), ua: IPHONE })).data.token, 'allowed when the setting is off');
+  } finally { srv.close(); }
+});

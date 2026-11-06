@@ -746,17 +746,26 @@ async function viewExam(eid) {
   if (local && local.done && !local.result) { document.body.classList.add('exam-on'); return finishScreen(eid, local.auto); }
   const info = await api('exam/' + eid);
   document.body.classList.add('exam-on');
+  if (info.noPhones && isPhoneDevice() && !(ME && ME.role === 'admin')) {
+    app.innerHTML = `<div class="exam-gate"><div class="eg-card ar-card" dir="rtl"><img src="brand/shield.png" alt="" width="48" height="56"><span class="kicker">${esc(S.board)}</span><h1>${esc(info.title)}</h1>
+      <div class="phone-no"><div class="pn-ico">📵</div><b>هذا الاختبار لا يُؤدّى على الجوال</b><p>استخدم <b>لابتوب</b> أو <b>تابلت (آيباد)</b>، وافتح الرابط في Safari أو Chrome.</p>
+      <p dir="ltr" class="muted">This exam must be taken on a laptop or a tablet. Phones are not allowed.</p></div>
+      <a href="#" class="btn">العودة للموقع</a></div></div>`;
+    return;
+  }
   const saved = examStore(eid) || {};
   // Exams with a trainee list are shown in Arabic.
   const ar = info.roster && !(ME && ME.role === 'admin');
   const T = (en, arText) => (ar ? arText : en);
   const rules = ar ? [
     `بعد الدخول يُحمَّل الاختبار على جهازك أولاً. مدة الاختبار <b>${info.durationMin} دقيقة</b> تبدأ عند الضغط على "ابدأ"، والوقت يستمر حتى لو أغلقت الصفحة، ويُسلَّم الاختبار تلقائياً عند انتهاء الوقت.`,
+    ...(info.noPhones ? ['<b>الأجهزة المسموحة: لابتوب أو تابلت فقط.</b> الجوالات غير مسموحة.'] : []),
     'محاولة واحدة لكل متدرب.',
     ...(info.lockAwaySec ? [`<b>الخروج من صفحة الاختبار</b> (إلى تطبيق أو نافذة أخرى) أكثر من ${info.lockAwaySec} ثوانٍ <b>يقفل السؤال المفتوح أمامك</b>، فلا يمكن تغيير إجابته بعد ذلك.`] : []),
     'ترتيب الأسئلة والخيارات مختلف لكل متدرب.',
     'ابقَ في صفحة الاختبار: الخروج منها أو التنقل بين التطبيقات أو النسخ يُسجَّل ويُرفع للبرنامج.',
     info.showScore ? 'إجاباتك تُحفظ أولاً بأول، وتظهر لك درجتك في النهاية دون الإجابات الصحيحة.' : 'إجاباتك تُحفظ أولاً بأول. النتائج يعلنها البرنامج لاحقاً.'] : ['After you sign in, the exam is first downloaded to your device. You have <b>' + info.durationMin + ' minutes</b> from the moment you press Start. The timer keeps running if you close the page; the exam is submitted automatically when time runs out.',
+    ...(info.noPhones ? ['<b>Allowed devices: laptop or tablet only.</b> Phones are not allowed.'] : []),
     'One attempt per ID number.',
     ...(info.lockAwaySec ? [`<b>Leaving the exam page</b> (another app or window) for more than ${info.lockAwaySec} seconds <b>locks the question on screen</b>; its answer can no longer be changed.`] : []),
     'Questions and choices appear in a different order for each trainee.',
@@ -844,7 +853,7 @@ async function viewExam(eid) {
     if (!pw) return askPassword();
     btn.disabled = true; btn.textContent = ar ? 'جارٍ البدء…' : 'Starting…';
     try {
-      const body = { name: f.name.value, scfhs: f.scfhs?.value, nid: f.nid?.value, password: pw, prepare: true };
+      const body = { name: f.name.value, scfhs: f.scfhs?.value, nid: f.nid?.value, password: pw, prepare: true, screen: screenInfo() };
       const r = await api(`exam/${eid}/start`, { body });
       if (body.scfhs) examStore(eid, { name: body.name, scfhs: body.scfhs });
       clearInterval(gt);
@@ -865,6 +874,7 @@ const AR_MSG = [
   [/about to close/i, 'الاختبار على وشك الإغلاق، لا يمكن البدء الآن.'],
   [/exam is closed/i, 'الاختبار مغلق.'],
   [/different name/i, 'رقم الهوية هذا له محاولة باسم آخر. راجع المشرف.'],
+  [/laptop or a tablet/i, 'هذا الاختبار يُؤدّى على لابتوب أو تابلت فقط، وليس على الجوال.'],
   [/fetch|network|load failed/i, 'مشكلة في الاتصال بالإنترنت. حاول مرة أخرى.'],
 ];
 const arMsg = (m) => { const hit = AR_MSG.find(([re]) => re.test(String(m || ''))); return hit ? hit[1] : String(m || ''); };
@@ -1188,6 +1198,10 @@ function splitScreen() {
 // What a browser needs for the exam to keep working with no connection, even after a reload.
 const OFFLINE_CACHE = 'pm-site-v1'; // same name as in sw.js
 const OFFLINE_FILES = ['./', 'index.html', 'app.js', 'calc.js', 'content.js', 'style.css', 'brand/shield.png', 'brand/shield-white.png', 'brand/favicon.png', 'brand/logo.png'];
+// Phones are refused for exams set to "laptops and tablets only" (the server checks too).
+const screenInfo = () => ({ short: Math.min(screen.width || 0, screen.height || 0), touch: matchMedia('(pointer:coarse)').matches });
+const isPhoneDevice = () => /iPhone|iPod|Windows Phone|Android.*Mobile|Mobile.*Android|BlackBerry|Opera Mini|IEMobile/i.test(navigator.userAgent || '')
+  || (screenInfo().touch && screenInfo().short > 0 && screenInfo().short < 600);
 function offlineSupport() {
   const ua = navigator.userAgent || '';
   let storage = false;
@@ -1429,6 +1443,7 @@ async function viewExamAdmin(eid) {
     <label>Duration (minutes)<input type="number" name="durationMin" min="5" value="${e.durationMin}"></label>
     <label>Exam password<input name="password" value="${esc(e.password)}"></label>
     <label>Pass mark % (optional)<input type="number" name="passMark" min="0" max="100" value="${e.passMark ?? ''}"></label>
+    <label class="eg-agree" style="grid-column:1/-1"><input type="checkbox" name="noPhones" style="width:auto" ${e.noPhones !== false ? 'checked' : ''}> Laptops and tablets only — phones are refused (admin preview still works on a phone)</label>
     <label>Lock a question after leaving the page for (seconds, 0 = off)<input type="number" name="lockAwaySec" min="0" max="600" value="${e.lockAwaySec ?? 10}"></label>
     <label class="eg-agree" style="grid-column:1/-1"><input type="checkbox" name="showScore" style="width:auto" ${e.showScore ? 'checked' : ''}> Show trainees their score — off: they only see “submitted”. Turn on later to release results; trainees then re-enter their details on the exam page to see their score.</label>
     <label style="grid-column:1/-1">Allowed trainees — one per line: name (Arabic) and national ID, or the name on one line and the ID on the next. Leave empty to allow anyone with the password.
@@ -1458,7 +1473,7 @@ async function viewExamAdmin(eid) {
   $('#es').onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target;
     if ((d.state === 'open' || d.attempts.length) && !confirm(`${d.state === 'open' ? 'The exam is open now' : `${d.attempts.length} trainee(s) have already sat it`}. Save these settings anyway?`)) return;
-    try { await api('admin/exams/' + eid, { body: { openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), durationMin: +f.durationMin.value, password: f.password.value, passMark: f.passMark.value, lockAwaySec: f.lockAwaySec.value, showScore: f.showScore.checked, roster: f.roster.value } }); route(); }
+    try { await api('admin/exams/' + eid, { body: { openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), durationMin: +f.durationMin.value, password: f.password.value, passMark: f.passMark.value, lockAwaySec: f.lockAwaySec.value, noPhones: f.noPhones.checked, showScore: f.showScore.checked, roster: f.roster.value } }); route(); }
     catch (e2) { errBox(e2); }
   };
   app.querySelectorAll('[data-key]').forEach((s) => s.onchange = async () => { if (!confirm('Change the key and re-grade all results?')) return route(); await api(`admin/exams/${eid}/items/${s.dataset.key}`, { body: { answer: s.value } }); route(); });

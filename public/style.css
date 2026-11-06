@@ -489,3 +489,8 @@ button.big{padding:14px;font-size:1.1rem}
 .ex-guard b{font-size:1.3rem}
 .ex-guard p{margin:0;opacity:.9;line-height:1.6}
 .ex-guard button[hidden]{display:none}
+/* phones refused */
+.phone-no{background:var(--bads);color:#6e2a23;border-radius:14px;padding:18px;display:grid;gap:8px;text-align:center}
+.phone-no .pn-ico{font-size:2.6rem}
+.phone-no b{font-size:1.15rem}
+.phone-no p{margin:0}
