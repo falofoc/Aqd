@@ -482,3 +482,10 @@ button.big{padding:14px;font-size:1.1rem}
 .ex-lock{background:var(--bads);color:var(--bad);border-radius:10px;padding:10px 12px;font-weight:600}
 .ex-opts.locked .ex-opt{opacity:.55;cursor:not-allowed}
 .ex-grid button.lk{background:var(--bads);border-color:var(--bad);color:var(--bad)}
+/* exam guard: questions hidden while the exam is not alone on the screen */
+.ex-guard{position:fixed;inset:0;z-index:60;background:#1c2b2c;color:#fff;display:grid;place-items:center;padding:24px;text-align:center}
+.ex-guard[hidden]{display:none}
+.ex-guard>div{max-width:420px;display:grid;gap:12px}
+.ex-guard b{font-size:1.3rem}
+.ex-guard p{margin:0;opacity:.9;line-height:1.6}
+.ex-guard button[hidden]{display:none}
