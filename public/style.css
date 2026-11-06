@@ -461,3 +461,7 @@ button.big{padding:14px;font-size:1.1rem}
 .em-f input{direction:ltr}
 .em-ok{background:var(--acs);color:#1f5a22;border-radius:10px;padding:10px 12px;font-size:.95rem;overflow-wrap:anywhere}
 .linkish{border:0;background:none;color:var(--ac);text-decoration:underline;padding:0 4px;font:inherit;cursor:pointer}
+/* locked question (left the exam page) */
+.ex-lock{background:var(--bads);color:var(--bad);border-radius:10px;padding:10px 12px;font-weight:600}
+.ex-opts.locked .ex-opt{opacity:.55;cursor:not-allowed}
+.ex-grid button.lk{background:var(--bads);border-color:var(--bad);color:var(--bad)}
