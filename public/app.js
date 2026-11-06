@@ -10,7 +10,7 @@ async function api(path, opts = {}) {
   const headers = { 'X-Requested-With': 'portal', ...(opts.headers || {}) };
   let body = opts.body;
   if (body && !(body instanceof Blob)) { body = JSON.stringify(body); headers['Content-Type'] = 'application/json'; }
-  const r = await fetch('/api/' + path, { method: opts.method || (body ? 'POST' : 'GET'), headers, body });
+  const r = await fetch('/api/' + path, { method: opts.method || (body ? 'POST' : 'GET'), headers, body, signal: opts.signal });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(data.message || 'Error'), { status: r.status });
   return data;
@@ -876,7 +876,19 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 // reload or a later visit to the site. Each entry carries the time it was made, so answers chosen in time count.
 const RUN_KEY = 'exam-run:';
 const runGet = (eid) => { try { return JSON.parse(localStorage.getItem(RUN_KEY + eid)); } catch { return null; } };
-const runSet = (r) => { try { localStorage.setItem(RUN_KEY + r.eid, JSON.stringify(r)); } catch {} };
+const runWrite = (r) => { try { localStorage.setItem(RUN_KEY + r.eid, JSON.stringify(r)); } catch {} };
+// The screen saves its copy of the attempt; the outbox on disk wins: entries the sender already removed are not
+// written back, and only entries newer than the last one saved are added.
+const runSet = (r) => {
+  const disk = runGet(r.eid);
+  if (disk && disk.token === r.token) {
+    const last = disk.opSeq || 0;
+    r.ops = [...(disk.ops || []), ...(r.ops || []).filter((o) => o.id > last)];
+    r.opSeq = Math.max(r.opSeq || 0, last);
+    if (disk.result && !r.result) r.result = disk.result;
+  }
+  runWrite(r);
+};
 const runNow = (r) => Date.now() + (r.offset || 0); // the server's clock
 const runPush = (r, op) => {
   op.id = (r.opSeq = (r.opSeq || 0) + 1); op.at = runNow(r);
@@ -884,7 +896,11 @@ const runPush = (r, op) => {
   if (op.k === 'a') r.ops = r.ops.filter((o, i) => !(o.k === 'a' && o.itemId === op.itemId && !(i === 0 && syncing[r.eid])));
   r.ops.push(op); runSet(r);
 };
-const syncing = {}, syncWake = {};
+const syncing = {}, syncWake = {}, syncAbort = {};
+// A request lost with a dropped mobile connection can hang with no answer and no error: each send has a time
+// limit, and coming back online (or back to the page) cancels a hanging send so it is retried at once.
+const SEND_LIMIT_MS = 15000;
+const syncNudge = () => { Object.values(syncAbort).forEach((c) => c && c.abort()); Object.values(syncWake).forEach((f) => f && f()); syncAllExams(); };
 function syncExam(eid) {
   if (syncing[eid]) return syncing[eid];
   syncing[eid] = (async () => {
@@ -897,18 +913,21 @@ function syncExam(eid) {
       if (op.k === 'a') Object.assign(body, { itemId: op.itemId, optionId: op.optionId, seq: op.seq });
       if (op.k === 'np') body.from = op.from;
       let res = null, final = false;
-      try { res = await api('exam/attempt/' + path, { body }); final = true; n = 0; }
+      const ctl = new AbortController(); syncAbort[eid] = ctl;
+      const limit = setTimeout(() => ctl.abort(), SEND_LIMIT_MS);
+      try { res = await api('exam/attempt/' + path, { body, signal: ctl.signal }); final = true; n = 0; }
       catch (e) {
-        if (netErr(e)) { n++; await new Promise((ok) => { const t = setTimeout(ok, Math.min(1000 * n, 8000)); syncWake[eid] = () => { clearTimeout(t); ok(); }; }); continue; }
+        if (netErr(e)) { clearTimeout(limit); syncAbort[eid] = null; n++; await new Promise((ok) => { const t = setTimeout(ok, Math.min(1000 * n, 5000)); syncWake[eid] = () => { clearTimeout(t); ok(); }; }); continue; }
         // A refusal (time up, part closed, attempt reset by the admin) is final: the entry is dropped.
         final = true;
         if (op.k === 'sub') res = { submitted: true, scoreHidden: true, name: r.name };
       }
+      clearTimeout(limit); syncAbort[eid] = null;
       if (final) {
         const now = runGet(eid) || r;
         now.ops = now.ops.filter((o) => o.id !== op.id);
         if (op.k === 'sub' && res) now.result = res;
-        runSet(now);
+        runWrite(now);
       }
     }
     delete syncing[eid];
@@ -916,7 +935,8 @@ function syncExam(eid) {
   return syncing[eid];
 }
 const syncAllExams = () => { try { Object.keys(localStorage).filter((k) => k.startsWith(RUN_KEY)).forEach((k) => { const r = runGet(k.slice(RUN_KEY.length)); if (r && r.ops && r.ops.length) syncExam(r.eid); }); } catch {} };
-window.addEventListener('online', () => { Object.values(syncWake).forEach((f) => f && f()); syncAllExams(); });
+window.addEventListener('online', syncNudge);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNudge(); });
 syncAllExams();
 
 // Builds (or continues) the device copy of an attempt from the server's start answer.
@@ -1171,14 +1191,25 @@ function prepareExam(eid, run) {
 // After submitting: shows "submitting" until everything on the device has reached the server, then the result.
 function finishScreen(eid, auto) {
   let alive = true;
-  app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res"><span class="kicker">${auto ? 'Time is up' : 'Exam finished'}</span><h1>Submitting…</h1><div class="res-spin"></div><p class="muted">Please keep this page open until you see that your answers have been received.</p></div></div>`;
-  examCleanup = () => { alive = false; };
+  app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res"><span class="kicker">${auto ? 'Time is up' : 'Exam finished'}</span><h1>Submitting…</h1><div class="res-spin"></div><p class="muted">Please keep this page open until you see that your answers have been received.</p>
+    <p class="muted" id="fs-left" dir="ltr"></p><button class="btn" id="fs-retry" type="button" hidden>Try again</button></div></div>`;
+  const started = Date.now();
+  const status = setInterval(() => {
+    const r = runGet(eid);
+    if (!r || !$('#fs-left')) return;
+    const left = (r.ops || []).length;
+    if (Date.now() - started > 6000 && left) { $('#fs-left').textContent = `Sending… ${left} item${left > 1 ? 's' : ''} left`; $('#fs-retry').hidden = false; }
+  }, 1000);
+  $('#fs-retry').onclick = syncNudge;
+  examCleanup = () => { alive = false; clearInterval(status); };
   (async () => {
     for (;;) {
       await syncExam(eid);
       const r = runGet(eid);
       if (!alive) return;
-      if (r && r.result) return showResult({ ...r.result, autoSubmitted: r.result.autoSubmitted || r.auto });
+      if (r && r.result) { clearInterval(status); return showResult({ ...r.result, autoSubmitted: r.result.autoSubmitted || r.auto }); }
+      // Nothing left to send but no answer recorded (e.g. the entry was lost): submit again.
+      if (r && !(r.ops || []).length) runPush(r, { k: 'sub', auto: r.auto });
       await wait(1500);
     }
   })();
