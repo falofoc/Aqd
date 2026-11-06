@@ -753,10 +753,12 @@ async function viewExam(eid) {
   const rules = ar ? [
     `بعد الدخول يُحمَّل الاختبار على جهازك أولاً. مدة الاختبار <b>${info.durationMin} دقيقة</b> تبدأ عند الضغط على "ابدأ"، والوقت يستمر حتى لو أغلقت الصفحة، ويُسلَّم الاختبار تلقائياً عند انتهاء الوقت.`,
     'محاولة واحدة لكل متدرب.',
+    ...(info.lockAwaySec ? [`<b>الخروج من صفحة الاختبار</b> (إلى تطبيق أو نافذة أخرى) أكثر من ${info.lockAwaySec} ثوانٍ <b>يقفل السؤال المفتوح أمامك</b>، فلا يمكن تغيير إجابته بعد ذلك.`] : []),
     'ترتيب الأسئلة والخيارات مختلف لكل متدرب.',
     'ابقَ في صفحة الاختبار: الخروج منها أو التنقل بين التطبيقات أو النسخ يُسجَّل ويُرفع للبرنامج.',
     info.showScore ? 'إجاباتك تُحفظ أولاً بأول، وتظهر لك درجتك في النهاية دون الإجابات الصحيحة.' : 'إجاباتك تُحفظ أولاً بأول. النتائج يعلنها البرنامج لاحقاً.'] : ['After you sign in, the exam is first downloaded to your device. You have <b>' + info.durationMin + ' minutes</b> from the moment you press Start. The timer keeps running if you close the page; the exam is submitted automatically when time runs out.',
     'One attempt per ID number.',
+    ...(info.lockAwaySec ? [`<b>Leaving the exam page</b> (another app or window) for more than ${info.lockAwaySec} seconds <b>locks the question on screen</b>; its answer can no longer be changed.`] : []),
     'Questions and choices appear in a different order for each trainee.',
     'Stay on this page: leaving it, switching apps or copying is recorded and reported to the program.',
     info.showScore ? 'Your answers are saved as you choose them. You will see your score at the end; the correct answers are not shown.' : 'Your answers are saved as you choose them. Results will be announced by the program later.'];
@@ -948,14 +950,15 @@ function runFrom(eid, st, opts = {}) {
   const offset = (st.serverNow || Date.now()) - Date.now();
   const deadline = st.deadline ? new Date(st.deadline).getTime() : null;
   if (old && old.token === st.token && !old.done) {
-    Object.assign(old, { parts, offset, durationMin: st.durationMin || old.durationMin, closeAt: st.closeAt === undefined ? old.closeAt : st.closeAt });
+    Object.assign(old, { parts, offset, durationMin: st.durationMin || old.durationMin, closeAt: st.closeAt === undefined ? old.closeAt : st.closeAt, lockAwaySec: st.lockAwaySec ?? old.lockAwaySec });
+    old.locked = [...new Set([...(old.locked || []), ...(st.locked || [])])];
     // Started on the server, or already started on this device (its clock is the one that counts).
     if (deadline && !old.begun) { old.begun = true; old.deadline = deadline; }
     old.partIndex = Math.max(old.partIndex || 0, st.partIndex || 0);
     old.ans = { ...(st.answers || {}), ...old.ans };
     runSet(old); return old;
   }
-  const r = { eid, token: st.token, name: st.name, title: st.title, deadline, begun: st.begun !== false, durationMin: st.durationMin, closeAt: st.closeAt, ar: !!opts.ar, offset, parts,
+  const r = { eid, token: st.token, name: st.name, title: st.title, deadline, begun: st.begun !== false, durationMin: st.durationMin, closeAt: st.closeAt, ar: !!opts.ar, lockAwaySec: st.lockAwaySec ?? 10, locked: [...(st.locked || [])], offset, parts,
     partIndex: st.partIndex || 0, ans: { ...(st.answers || {}) }, flagged: [], cur: -1, done: false, ops: [], seq: Date.now(), opSeq: 0 };
   runSet(r); return r;
 }
@@ -970,6 +973,7 @@ function runExam(eid, run) {
   let cur = run.cur >= 0 && run.cur < qs.length ? run.cur : Math.max(0, qs.findIndex((q) => !ans[q.id]));
   let done = false, warned5 = false;
   const save = () => { run.flagged = [...flagged]; run.cur = cur; runSet(run); };
+  const isLocked = (id) => (run.locked || []).includes(id);
   app.innerHTML = `<div class="exam" id="exam">
     <div class="ex-wm" style="--wm:'${esc(run.name).replace(/'/g, '')}'"></div>
     <header class="ex-bar"><div class="ex-t"><b id="ptitle">${esc(part.title || run.title)}</b><small>${esc(run.name)}</small></div>
@@ -996,11 +1000,12 @@ function runExam(eid, run) {
       ${q.group && q.stem ? `<div class="ex-stem">${esc(q.stem)}${q.images ? `<div class="ex-imgs">${q.images.map((s) => `<img src="${s}" alt="Epidemic curve" draggable="false">`).join('')}</div>` : ''}</div>` : ''}
       <h2 class="ex-q">${esc(q.text)}</h2>
       <p class="ex-fine" lang="de">${examNotice()}</p>
+      ${isLocked(q.id) ? '<div class="ex-lock">🔒 This question is locked because you left the exam page. Its answer stays as it was.</div>' : ''}
       ${q.multi ? '<p class="ex-multi">☑ Select <b>all</b> correct answers — this question has more than one. It counts only if you choose exactly the right ones.</p>' : ''}
       ${q.table ? `<div class="tw"><table class="ex-table"><tr>${q.table.head.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${q.table.rows.map((r) => `<tr>${r.map((c, i) => i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`).join('')}</tr>`).join('')}</table></div>` : ''}
-      <div class="ex-opts ${q.multi ? 'multi' : ''}">${q.options.map((o, i) => `<button class="ex-opt ${picked(q, o.id) ? 'on' : ''}" data-o="${o.id}"><span>${q.multi ? (picked(q, o.id) ? '✓' : '') : 'ABCDEFGH'[i]}</span>${q.multi ? `<b class="ex-l">${'ABCDEFGH'[i]}.</b> ` : ''}${esc(o.text)}</button>`).join('')}</div>`;
+      <div class="ex-opts ${q.multi ? 'multi' : ''} ${isLocked(q.id) ? 'locked' : ''}">${q.options.map((o, i) => `<button class="ex-opt ${picked(q, o.id) ? 'on' : ''}" data-o="${o.id}"><span>${q.multi ? (picked(q, o.id) ? '✓' : '') : 'ABCDEFGH'[i]}</span>${q.multi ? `<b class="ex-l">${'ABCDEFGH'[i]}.</b> ` : ''}${esc(o.text)}</button>`).join('')}</div>`;
     $('#qbox').querySelectorAll('.ex-opt').forEach((b) => b.onclick = () => {
-      if (done) return;
+      if (done || isLocked(q.id)) return;
       let oid;
       if (q.multi) {
         const cur2 = new Set(ans[q.id] || []);
@@ -1016,7 +1021,7 @@ function runExam(eid, run) {
     $('#flag').classList.toggle('on', flagged.has(q.id));
     const n = qs.filter((x) => ans[x.id]).length;
     $('#pg').style.width = (n / qs.length * 100) + '%';
-    $('#grid').innerHTML = qs.map((x, i) => `<button class="${ans[x.id] ? 'a' : ''} ${flagged.has(x.id) ? 'f' : ''} ${i === cur ? 'c' : ''}" data-i="${i}">${i + 1}</button>`).join('');
+    $('#grid').innerHTML = qs.map((x, i) => `<button class="${ans[x.id] ? 'a' : ''} ${flagged.has(x.id) ? 'f' : ''} ${isLocked(x.id) ? 'lk' : ''} ${i === cur ? 'c' : ''}" data-i="${i}">${i + 1}</button>`).join('');
     $('#grid').querySelectorAll('button').forEach((b) => b.onclick = () => { cur = +b.dataset.i; save(); draw(); window.scrollTo(0, 0); });
   };
   $('#prev').onclick = () => { if (cur) { cur--; save(); draw(); window.scrollTo(0, 0); } };
@@ -1075,14 +1080,32 @@ function runExam(eid, run) {
   const ev = (type) => api('exam/attempt/event', { body: { token: run.token, type } }).catch(() => {});
   // Leaving the page: which question was on screen and for how long (kept on the device, sent with the answers).
   const awayStart = () => { if (!run.away) { run.away = { t: runNow(run), itemId: qs[cur]?.id }; runSet(run); } };
+  const lockMs = (run.lockAwaySec ?? 10) * 1000;
   const awayEnd = () => {
-    if (!run.away) return;
+    if (!run.away) return 0;
     const { t, itemId } = run.away; run.away = null;
-    if (itemId) runPush(run, { k: 'ev', type: 'away', itemId, ms: Math.max(0, runNow(run) - t), from: t }); else runSet(run);
+    const ms = Math.max(0, runNow(run) - t);
+    // Away long enough: the question that was on screen is locked (also checked by the server).
+    if (itemId && lockMs && ms >= lockMs && !(run.locked || []).includes(itemId)) run.locked = [...(run.locked || []), itemId];
+    if (itemId) runPush(run, { k: 'ev', type: 'away', itemId, ms, from: t }); else runSet(run);
     syncExam(eid);
+    return ms;
   };
-  const onVis = () => { if (document.hidden) { lost++; awayStart(); } else { awayEnd(); warn(`You left the exam page (${lost}×). This is recorded and reported.`); } };
-  const onBlur = () => { if (!document.hidden) ev('blur'); };
+  // Away = the page is hidden (another app or tab) or, on a computer, another window has the focus.
+  const isAway = () => document.hidden || !document.hasFocus();
+  const onAwayChange = () => {
+    if (done) return;
+    if (isAway()) { if (!run.away) { lost++; awayStart(); } return; }
+    const itemId = run.away?.itemId;
+    const ms = awayEnd();
+    if (ms === 0 && !itemId) return;
+    const locked = itemId && lockMs && ms >= lockMs;
+    warn(locked ? `You were away from the exam page for ${Math.round(ms / 1000)} s, so that question is now locked.` : `You left the exam page (${lost}×). This is recorded and reported.`);
+    draw();
+  };
+  const onVis = onAwayChange;
+  const onBlur = () => setTimeout(onAwayChange, 50);
+  const onFocus = onAwayChange;
   const stop = (type) => (e) => { e.preventDefault(); ev(type); warn('Copying and right-click are disabled during the exam.'); };
   const onCopy = stop('copy'), onCtx = stop('contextmenu'), onPaste = stop('paste');
   const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && ['p', 's', 'c', 'u'].includes(e.key.toLowerCase())) { e.preventDefault(); ev(e.key.toLowerCase() === 'p' ? 'print' : 'copy'); } if (e.key === 'F12') { e.preventDefault(); ev('devtools'); } };
@@ -1090,6 +1113,7 @@ function runExam(eid, run) {
   const onFs = () => { if (!document.fullscreenElement) ev('fullscreen-exit'); };
   document.addEventListener('visibilitychange', onVis);
   window.addEventListener('blur', onBlur);
+  window.addEventListener('focus', onFocus);
   document.addEventListener('copy', onCopy); document.addEventListener('cut', onCopy);
   document.addEventListener('paste', onPaste); document.addEventListener('contextmenu', onCtx);
   document.addEventListener('keydown', onKey);
@@ -1099,7 +1123,7 @@ function runExam(eid, run) {
   const timer = setInterval(tick, 500);
   function cleanup() {
     clearInterval(timer);
-    document.removeEventListener('visibilitychange', onVis); window.removeEventListener('blur', onBlur);
+    document.removeEventListener('visibilitychange', onVis); window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onFocus);
     document.removeEventListener('copy', onCopy); document.removeEventListener('cut', onCopy);
     document.removeEventListener('paste', onPaste); document.removeEventListener('contextmenu', onCtx);
     document.removeEventListener('keydown', onKey); window.removeEventListener('beforeunload', onUnload);
@@ -1361,6 +1385,7 @@ async function viewExamAdmin(eid) {
     <label>Duration (minutes)<input type="number" name="durationMin" min="5" value="${e.durationMin}"></label>
     <label>Exam password<input name="password" value="${esc(e.password)}"></label>
     <label>Pass mark % (optional)<input type="number" name="passMark" min="0" max="100" value="${e.passMark ?? ''}"></label>
+    <label>Lock a question after leaving the page for (seconds, 0 = off)<input type="number" name="lockAwaySec" min="0" max="600" value="${e.lockAwaySec ?? 10}"></label>
     <label class="eg-agree" style="grid-column:1/-1"><input type="checkbox" name="showScore" style="width:auto" ${e.showScore ? 'checked' : ''}> Show trainees their score — off: they only see “submitted”. Turn on later to release results; trainees then re-enter their details on the exam page to see their score.</label>
     <label style="grid-column:1/-1">Allowed trainees — one per line: name (Arabic) and national ID, or the name on one line and the ID on the next. Leave empty to allow anyone with the password.
       <textarea name="roster" rows="8" dir="rtl" placeholder="سارة خالد العتيبي 1000000001">${esc((e.roster || []).map((x) => `${x.name} ${x.nid}`).join('\n'))}</textarea>
@@ -1389,7 +1414,7 @@ async function viewExamAdmin(eid) {
   $('#es').onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target;
     if ((d.state === 'open' || d.attempts.length) && !confirm(`${d.state === 'open' ? 'The exam is open now' : `${d.attempts.length} trainee(s) have already sat it`}. Save these settings anyway?`)) return;
-    try { await api('admin/exams/' + eid, { body: { openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), durationMin: +f.durationMin.value, password: f.password.value, passMark: f.passMark.value, showScore: f.showScore.checked, roster: f.roster.value } }); route(); }
+    try { await api('admin/exams/' + eid, { body: { openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), durationMin: +f.durationMin.value, password: f.password.value, passMark: f.passMark.value, lockAwaySec: f.lockAwaySec.value, showScore: f.showScore.checked, roster: f.roster.value } }); route(); }
     catch (e2) { errBox(e2); }
   };
   app.querySelectorAll('[data-key]').forEach((s) => s.onchange = async () => { if (!confirm('Change the key and re-grade all results?')) return route(); await api(`admin/exams/${eid}/items/${s.dataset.key}`, { body: { answer: s.value } }); route(); });
@@ -1399,8 +1424,8 @@ async function viewExamAdmin(eid) {
     const a = d.attempts.find((x) => x.id === b.dataset.view);
     const aw = awayByItem(a);
     $('#dlgBody').innerHTML = `<h2>${esc(a.name)}</h2><p class="muted">${esc(a.scfhs)} · started ${fmt(a.startedAt)}${a.submittedAt ? ` · submitted ${fmt(a.submittedAt)}` : ''}</p>
-      ${(a.away || []).length ? `<div class="warn">Left the exam page <b>${a.away.length}×</b>, <b>${mmss(a.awayMs)}</b> in total, while on questions ${[...aw.keys()].map((iid) => '#' + (e.items.findIndex((x) => x.id === iid) + 1)).join(', ')}. ${(() => { const r = [...aw.keys()].map((iid) => e.items.find((x) => x.id === iid)).filter((it) => it && a.answers[it.id]); const ok = r.filter((it) => ansRight(it, a.answers[it.id])).length; return `${ok} of those ${aw.size} answered correctly.`; })()}</div>` : ''}
-      <div class="tw"><table><tr><th>#</th><th>Question</th><th>Answer</th><th>Key</th><th>Away</th></tr>${e.items.map((it, n) => { const c = a.answers[it.id]; const w = aw.get(it.id); return `<tr class="${it.excluded ? 'ex-off' : ''} ${w ? 'aw-row' : ''}"><td>${n + 1}${screenNo(e, a, it) ? `<br><small class="muted" title="Number on the trainee's screen">Q${screenNo(e, a, it)}</small>` : ''}</td><td>${esc(it.text.slice(0, 90))}${it.text.length > 90 ? '…' : ''}</td><td>${c ? `<span class="tag ${ansRight(it, c) ? 't-done' : 't-closed'}">${ansLetters(it, c)}</span>` : '<span class="muted">—</span>'}</td><td>${keyLetters(it)}</td><td>${w ? `<b>${mmss(w.ms)}</b>${w.n > 1 ? ` <small class="muted">(${w.n}×)</small>` : ''}` : ''}</td></tr>`; }).join('')}</table></div>
+      ${(a.away || []).length ? `<div class="warn">Left the exam page <b>${a.away.length}×</b>, <b>${mmss(a.awayMs)}</b> in total, while on questions ${[...aw.keys()].map((iid) => '#' + (e.items.findIndex((x) => x.id === iid) + 1)).join(', ')}. ${(() => { const r = [...aw.keys()].map((iid) => e.items.find((x) => x.id === iid)).filter((it) => it && a.answers[it.id]); const ok = r.filter((it) => ansRight(it, a.answers[it.id])).length; return `${ok} of those ${aw.size} answered correctly.${(a.locked || []).length ? ` ${a.locked.length} question(s) locked 🔒.` : ''}`; })()}</div>` : ''}
+      <div class="tw"><table><tr><th>#</th><th>Question</th><th>Answer</th><th>Key</th><th>Away</th></tr>${e.items.map((it, n) => { const c = a.answers[it.id]; const w = aw.get(it.id); return `<tr class="${it.excluded ? 'ex-off' : ''} ${w ? 'aw-row' : ''}"><td>${n + 1}${screenNo(e, a, it) ? `<br><small class="muted" title="Number on the trainee's screen">Q${screenNo(e, a, it)}</small>` : ''}</td><td>${esc(it.text.slice(0, 90))}${it.text.length > 90 ? '…' : ''}</td><td>${c ? `<span class="tag ${ansRight(it, c) ? 't-done' : 't-closed'}">${ansLetters(it, c)}</span>` : '<span class="muted">—</span>'}</td><td>${keyLetters(it)}</td><td>${w ? `<b>${mmss(w.ms)}</b>${w.n > 1 ? ` <small class="muted">(${w.n}×)</small>` : ''}` : ''}${(a.locked || []).includes(it.id) ? ' 🔒' : ''}</td></tr>`; }).join('')}</table></div>
       ${(a.events || []).length ? `<h3>Activity log</h3><ul>${a.events.slice(-40).map((x) => `<li>${fmt(x.t)} · ${x.type === 'away' ? `left the page for ${mmss(x.ms)} on question #${e.items.findIndex((i) => i.id === x.itemId) + 1}` : esc(x.type)}</li>`).join('')}</ul>` : ''}
       <div class="bar"><button id="x">Close</button></div>`;
     $('#x').onclick = () => $('#dlg').close();

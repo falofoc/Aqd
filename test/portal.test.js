@@ -515,6 +515,15 @@ test('exam download first, clock starts on begin (also when begin arrives late f
     assert.equal(att.focusLost, 1);
     assert.equal(att.awayMs, 42000);
     assert.deepEqual(att.away.map((x) => x.itemId), [q.id]);
+    // 42 s away (over the 10 s limit): that question is locked; its saved answer stays, a change is refused
+    assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: q.id, optionId: null, seq: 3, at: Date.now() } })).status, 409);
+    const q2 = exam.items.filter((x) => x.part === 'bio')[1];
+    await call('exam/attempt/event', { body: { token: st.token, type: 'away', itemId: q2.id, ms: 4000, at: Date.now() - 4000 } });
+    assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: q2.id, optionId: q2.answer, seq: 4, at: Date.now() } })).status, 200, 'a short exit does not lock');
+    const att2 = (await call('admin/exams/t1', { cookie: admin })).data.attempts[0];
+    assert.deepEqual(att2.locked, [q.id]);
+    assert.equal(att2.answers[q.id], q.answer);
+    assert.equal((await call('exam/t1/start', { body: me })).data.locked[0], q.id, 'the lock comes back on re-entry');
   } finally { srv.close(); }
 });
 
