@@ -740,6 +740,10 @@ async function viewExamList() {
 }
 
 async function viewExam(eid) {
+  // An exam already started on this device opens straight away, with or without a connection.
+  const local = runGet(eid);
+  if (local && !local.done) { document.body.classList.add('exam-on'); return runExam(eid, local); }
+  if (local && local.done && !local.result) { document.body.classList.add('exam-on'); return finishScreen(eid, local.auto); }
   const info = await api('exam/' + eid);
   document.body.classList.add('exam-on');
   const saved = examStore(eid) || {};
@@ -748,11 +752,11 @@ async function viewExam(eid) {
   const T = (en, arText) => (ar ? arText : en);
   const rules = ar ? [
     `مدة الاختبار <b>${info.durationMin} دقيقة</b> تبدأ من لحظة الدخول، والوقت يستمر حتى لو أغلقت الصفحة، ويُسلَّم الاختبار تلقائياً عند انتهاء الوقت.`,
-    'محاولة واحدة لكل متدرب. إذا انقطع الاتصال أدخل بياناتك مرة أخرى وتكمل من حيث توقفت.',
+    'محاولة واحدة لكل متدرب.',
     'ترتيب الأسئلة والخيارات مختلف لكل متدرب.',
     'ابقَ في صفحة الاختبار: الخروج منها أو التنقل بين التطبيقات أو النسخ يُسجَّل ويُرفع للبرنامج.',
     info.showScore ? 'إجاباتك تُحفظ أولاً بأول، وتظهر لك درجتك في النهاية دون الإجابات الصحيحة.' : 'إجاباتك تُحفظ أولاً بأول. النتائج يعلنها البرنامج لاحقاً.'] : ['You have <b>' + info.durationMin + ' minutes</b> from the moment you start. The timer keeps running if you close the page; the exam is submitted automatically when time runs out.',
-    'One attempt per ID number. If your connection drops, enter your details again to continue where you stopped.',
+    'One attempt per ID number.',
     'Questions and choices appear in a different order for each trainee.',
     'Stay on this page: leaving it, switching apps or copying is recorded and reported to the program.',
     info.showScore ? 'Your answers are saved as you choose them. You will see your score at the end; the correct answers are not shown.' : 'Your answers are saved as you choose them. Results will be announced by the program later.'];
@@ -763,14 +767,13 @@ async function viewExam(eid) {
       <div id="eg-state"></div>
       <ul class="ticks">${rules.map((r) => `<li>${r}</li>`).join('')}</ul>
       <form id="ef" class="list">
+        <button type="button" class="eg-pw" id="pwbtn">🔒 ${T('Enter the exam password', 'أدخل كلمة مرور الاختبار')}</button>
         ${info.roster && !(ME && ME.role === 'admin') ? `
-        <label>كلمة مرور الاختبار<input name="password" type="password" required autocomplete="off" dir="ltr"></label>
         <label class="sug-wrap">الاسم الرباعي بالعربي<input name="name" required autocomplete="off" autocorrect="off" spellcheck="false" placeholder="اكتب أول اسمك واختر من القائمة" disabled><div class="sug" id="sug" hidden></div></label>
         <p class="muted ar" dir="rtl" id="nhint">أدخل كلمة المرور أولاً لتظهر أسماء المختبرين.</p>
         <label>رقم الهوية<input name="nid" required inputmode="numeric" autocomplete="off" maxlength="10" placeholder="10 أرقام" disabled></label>`
-        : `<label>Full name<input name="name" required value="${esc(saved.name || '')}" autocomplete="name"></label>
-        <label>National ID number<input name="scfhs" required inputmode="numeric" maxlength="10" placeholder="10 digits" value="${esc(saved.scfhs || '')}"></label>
-        <label>Exam password<input name="password" type="password" required autocomplete="off"></label>`}
+        : `<label>Full name<input name="name" required value="${esc(saved.name || '')}" autocomplete="name" disabled></label>
+        <label>National ID number<input name="scfhs" required inputmode="numeric" maxlength="10" placeholder="10 digits" value="${esc(saved.scfhs || '')}" disabled></label>`}
         <label class="eg-agree"><input type="checkbox" required style="width:auto"> ${T('I will answer on my own, without help or other resources.', 'أتعهد بالإجابة بنفسي دون مساعدة أو مصادر أخرى.')}</label>
         <div id="e"></div><button class="pri big">${T('Start the exam', 'ابدأ الاختبار')}</button></form>
       <a href="#exam" class="muted" style="text-align:center">${T('← Back', 'رجوع →')}</a></div></div>`;
@@ -784,19 +787,35 @@ async function viewExam(eid) {
   tickGate();
   const gt = setInterval(tickGate, 1000);
   examCleanup = () => clearInterval(gt);
-  // Listed trainees: the right password unlocks name suggestions; the ID is checked on the server.
-  if (info.roster && !(ME && ME.role === 'admin')) {
-    const f = $('#ef'); let names = [], last = '';
-    const unlock = async () => {
-      const pw = f.password.value.trim();
-      if (!pw || pw === last) return; last = pw;
+  // The password is asked first, in a pop-up; once it is right, the rest of the form opens.
+  let pw = '', names = [];
+  const f0 = $('#ef');
+  const askPassword = () => {
+    $('#dlgBody').innerHTML = `<form id="pwf" class="list" ${ar ? 'dir="rtl"' : ''}><h2>${T('Exam password', 'كلمة مرور الاختبار')}</h2>
+      <input name="pw" type="password" required autocomplete="off" dir="ltr" placeholder="••••••">
+      <div id="pwe"></div><div class="row bar"><button class="pri">${T('Confirm', 'تأكيد')}</button><button type="button" id="pwx">${T('Cancel', 'إلغاء')}</button></div></form>`;
+    const pf = $('#pwf');
+    $('#pwx').onclick = () => $('#dlg').close();
+    pf.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const btn = pf.querySelector('button.pri'); btn.disabled = true;
       try {
-        names = (await api(`exam/${eid}/names`, { body: { password: pw } })).names;
-        f.name.disabled = false; f.nid.disabled = false;
-        $('#nhint').textContent = 'اكتب أول اسمك ثم اختر اسمك الكامل من الاقتراحات، وبعده رقم هويتك.';
-        f.name.focus();
-      } catch { $('#nhint').textContent = 'كلمة المرور غير صحيحة.'; f.name.disabled = true; f.nid.disabled = true; }
+        names = (await api(`exam/${eid}/names`, { body: { password: pf.pw.value.trim() } })).names;
+        pw = pf.pw.value.trim();
+        $('#dlg').close();
+        $('#pwbtn').textContent = '✓ ' + T('Password confirmed', 'تم التحقق من كلمة المرور'); $('#pwbtn').classList.add('ok'); $('#pwbtn').disabled = true;
+        f0.querySelectorAll('input[name=name],input[name=nid],input[name=scfhs]').forEach((i) => { i.disabled = false; });
+        if ($('#nhint')) $('#nhint').textContent = 'اكتب أول اسمك ثم اختر اسمك الكامل من الاقتراحات، وبعده رقم هويتك.';
+        f0.name.focus();
+      } catch (e) { $('#pwe').innerHTML = `<div class="err">${esc(ar ? arMsg(e.message) : e.message)}</div>`; btn.disabled = false; pf.pw.select(); }
     };
+    $('#dlg').showModal(); pf.pw.focus();
+  };
+  $('#pwbtn').onclick = askPassword;
+  askPassword();
+  // Listed trainees: name suggestions from the list; the ID is checked on the server.
+  if (info.roster && !(ME && ME.role === 'admin')) {
+    const f = f0;
     // Our own suggestion list (the browser's built-in one does not work on many phones).
     const norm = (t) => String(t || '').replace(/[\u064B-\u0652\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ').trim();
     const sug = $('#sug');
@@ -813,23 +832,21 @@ async function viewExam(eid) {
     f.name.addEventListener('input', showSug);
     f.name.addEventListener('focus', showSug);
     f.name.addEventListener('blur', () => setTimeout(() => { sug.hidden = true; }, 150));
-    f.password.addEventListener('change', unlock);
-    f.password.addEventListener('blur', unlock);
-    f.password.addEventListener('keyup', () => { if (f.password.value.length >= 6) unlock(); });
     f.nid.addEventListener('input', () => { f.nid.value = f.nid.value.replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/\D/g, '').slice(0, 10); });
   }
   $('#ef').onsubmit = async (ev) => {
     ev.preventDefault();
     if ($('#sug')) $('#sug').hidden = true;
     const f = ev.target, btn = f.querySelector('button.big'), label = btn.textContent;
+    if (!pw) return askPassword();
     btn.disabled = true; btn.textContent = ar ? 'جارٍ البدء…' : 'Starting…';
     try {
-      const body = { name: f.name.value, scfhs: f.scfhs?.value, nid: f.nid?.value, password: f.password.value };
+      const body = { name: f.name.value, scfhs: f.scfhs?.value, nid: f.nid?.value, password: pw };
       const r = await api(`exam/${eid}/start`, { body });
       if (body.scfhs) examStore(eid, { name: body.name, scfhs: body.scfhs });
       clearInterval(gt);
       if (r.submitted) return showResult(r);
-      runExam(eid, r);
+      runExam(eid, runFrom(eid, r));
     } catch (e) { errBox(ar ? arMsg(e.message) : e); btn.disabled = false; btn.textContent = label; }
   };
 }
@@ -851,17 +868,84 @@ const arMsg = (m) => { const hit = AR_MSG.find(([re]) => re.test(String(m || '')
 const netErr = (e) => !e.status || e.status >= 500 || e.status === 408 || e.status === 429;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function runExam(eid, st) {
-  let qs = st.questions, part = st.part || { index: 0, count: 1, title: '', next: null };
-  const ans = { ...st.answers }, flagged = new Set();
+// ---------- Exam that runs on the device ----------
+// After the start, the whole exam (all parts) is kept on the device, so it runs to the end with no connection.
+// Every change goes into an ordered outbox that is sent whenever a connection is available, including after a
+// reload or a later visit to the site. Each entry carries the time it was made, so answers chosen in time count.
+const RUN_KEY = 'exam-run:';
+const runGet = (eid) => { try { return JSON.parse(localStorage.getItem(RUN_KEY + eid)); } catch { return null; } };
+const runSet = (r) => { try { localStorage.setItem(RUN_KEY + r.eid, JSON.stringify(r)); } catch {} };
+const runNow = (r) => Date.now() + (r.offset || 0); // the server's clock
+const runPush = (r, op) => {
+  op.id = (r.opSeq = (r.opSeq || 0) + 1); op.at = runNow(r);
+  // A newer answer to the same question replaces one that has not been sent yet.
+  if (op.k === 'a') r.ops = r.ops.filter((o, i) => !(o.k === 'a' && o.itemId === op.itemId && !(i === 0 && syncing[r.eid])));
+  r.ops.push(op); runSet(r);
+};
+const syncing = {}, syncWake = {};
+function syncExam(eid) {
+  if (syncing[eid]) return syncing[eid];
+  syncing[eid] = (async () => {
+    for (let n = 0; ;) {
+      const r = runGet(eid);
+      const op = r && r.ops && r.ops[0];
+      if (!op) break;
+      const body = { token: r.token, at: op.at };
+      const path = op.k === 'a' ? 'answer' : op.k === 'np' ? 'next-part' : 'submit';
+      if (op.k === 'a') Object.assign(body, { itemId: op.itemId, optionId: op.optionId, seq: op.seq });
+      if (op.k === 'np') body.from = op.from;
+      let res = null, final = false;
+      try { res = await api('exam/attempt/' + path, { body }); final = true; n = 0; }
+      catch (e) {
+        if (netErr(e)) { n++; await new Promise((ok) => { const t = setTimeout(ok, Math.min(1000 * n, 8000)); syncWake[eid] = () => { clearTimeout(t); ok(); }; }); continue; }
+        // A refusal (time up, part closed, attempt reset by the admin) is final: the entry is dropped.
+        final = true;
+        if (op.k === 'sub') res = { submitted: true, scoreHidden: true, name: r.name };
+      }
+      if (final) {
+        const now = runGet(eid) || r;
+        now.ops = now.ops.filter((o) => o.id !== op.id);
+        if (op.k === 'sub' && res) now.result = res;
+        runSet(now);
+      }
+    }
+    delete syncing[eid];
+  })();
+  return syncing[eid];
+}
+const syncAllExams = () => { try { Object.keys(localStorage).filter((k) => k.startsWith(RUN_KEY)).forEach((k) => { const r = runGet(k.slice(RUN_KEY.length)); if (r && r.ops && r.ops.length) syncExam(r.eid); }); } catch {} };
+window.addEventListener('online', () => { Object.values(syncWake).forEach((f) => f && f()); syncAllExams(); });
+syncAllExams();
+
+// Builds (or continues) the device copy of an attempt from the server's start answer.
+function runFrom(eid, st) {
+  const old = runGet(eid);
+  const parts = st.parts || [{ index: 0, title: st.part?.title || '', questions: st.questions }];
+  const offset = (st.serverNow || Date.now()) - Date.now();
+  if (old && old.token === st.token && !old.done) {
+    Object.assign(old, { parts, deadline: new Date(st.deadline).getTime(), offset });
+    old.partIndex = Math.max(old.partIndex || 0, st.partIndex || 0);
+    old.ans = { ...(st.answers || {}), ...old.ans };
+    runSet(old); return old;
+  }
+  const r = { eid, token: st.token, name: st.name, title: st.title, deadline: new Date(st.deadline).getTime(), offset, parts,
+    partIndex: st.partIndex || 0, ans: { ...(st.answers || {}) }, flagged: [], cur: -1, done: false, ops: [], seq: Date.now(), opSeq: 0 };
+  runSet(r); return r;
+}
+
+function runExam(eid, run) {
+  const parts = run.parts;
+  const P = () => parts[run.partIndex];
+  const partInfo = () => ({ title: P().title, next: parts[run.partIndex + 1] ? parts[run.partIndex + 1].title : null });
+  let qs = P().questions, part = partInfo();
+  const ans = run.ans, flagged = new Set(run.flagged || []);
   window.__ans = ans;
-  const deadline = new Date(st.deadline).getTime();
-  let cur = qs.findIndex((q) => !ans[q.id]); if (cur < 0) cur = 0;
+  let cur = run.cur >= 0 && run.cur < qs.length ? run.cur : Math.max(0, qs.findIndex((q) => !ans[q.id]));
   let done = false, warned5 = false;
-  const mark = encodeURIComponent(`${st.name}`);
+  const save = () => { run.flagged = [...flagged]; run.cur = cur; runSet(run); };
   app.innerHTML = `<div class="exam" id="exam">
-    <div class="ex-wm" style="--wm:'${esc(st.name).replace(/'/g, '')}'"></div>
-    <header class="ex-bar"><div class="ex-t"><b id="ptitle">${esc(part.title || st.title)}</b><small>${esc(st.name)}</small></div>
+    <div class="ex-wm" style="--wm:'${esc(run.name).replace(/'/g, '')}'"></div>
+    <header class="ex-bar"><div class="ex-t"><b id="ptitle">${esc(part.title || run.title)}</b><small>${esc(run.name)}</small></div>
       <div class="ex-timer" id="tm">--:--</div>
       <button id="calc" class="ex-calc" type="button" title="Calculator" aria-label="Calculator"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.5 6.5h7M8.5 11h.01M12 11h.01M15.5 11h.01M8.5 14.5h.01M12 14.5h.01M15.5 14.5h.01M8.5 18h.01M12 18h.01M15.5 18h.01"/></svg></button>
       <button class="pri" id="fin">${part.next ? 'Finish part' : 'Submit'}</button></header>
@@ -870,48 +954,25 @@ function runExam(eid, st) {
     <main class="ex-main"><div id="qbox"></div>
       <div class="ex-nav"><button id="prev">← Previous</button><button id="flag">⚑ Flag</button><button class="pri" id="next">Next →</button></div>
       <div class="ex-grid" id="grid"></div><p class="muted ex-save" id="sv"></p></main></div>`;
-  void mark;
-  const send = (path, body) => api('exam/attempt/' + path, { body: { token: st.token, ...body } });
   if (window.Calc) { Calc.reset(); $('#calc').onclick = () => Calc.toggle(); } else $('#calc').remove();
-  // Works through short connection losses without alarming the trainee: answers are kept on the device
-  // (survives a reload), queued in order and retried until the server has them; Submit waits for all of them.
-  const LS = 'exam-q:' + st.token;
-  const lsGet = () => { try { return JSON.parse(localStorage.getItem(LS)) || {}; } catch { return {}; } };
-  const lsSet = (v) => { try { localStorage.setItem(LS, JSON.stringify(v)); } catch {} };
-  let backup = lsGet();
-  let seq = Math.max(Date.now(), backup.seq || 0), queue = Promise.resolve(), pending = 0;
-  let kick = null; // resolves the current retry wait early when the connection comes back
-  const pause = (ms) => new Promise((r) => { const t = setTimeout(r, ms); kick = () => { clearTimeout(t); r(); }; });
-  const onOnline = () => kick && kick();
-  window.addEventListener('online', onOnline);
-  // Keep trying while the network is the problem; stop on a real refusal (time up, submitted, part closed).
-  const persist = async (fn) => { for (let n = 0; ; n++) { try { return await fn(); } catch (e) { if (!netErr(e)) throw e; await pause(Math.min(1000 * (n + 1), 5000)); } } };
-  const saveAnswer = (itemId, optionId, n = ++seq) => {
-    pending++;
-    backup = { seq, pend: { ...(backup.pend || {}), [itemId]: { optionId, seq: n } } }; lsSet(backup);
+  // Images (epidemic curves) of every part are loaded now, so they show without a connection later.
+  parts.forEach((pt) => pt.questions.forEach((q) => (q.images || []).forEach((src) => { const im = new Image(); im.src = src; })));
+  const saveAnswer = (itemId, optionId) => {
+    runPush(run, { k: 'a', itemId, optionId, seq: (run.seq = (run.seq || Date.now()) + 1) });
     $('#sv').textContent = 'Saved ✓';
-    queue = queue.then(async () => {
-      try { await persist(() => send('answer', { itemId, optionId, seq: n })); } catch {}
-      if (backup.pend?.[itemId]?.seq === n) { delete backup.pend[itemId]; lsSet(backup); }
-      pending--;
-    });
-    return queue;
+    syncExam(eid);
   };
-  // Answers chosen before a reload that had not reached the server yet are restored and sent.
-  for (const [itemId, v] of Object.entries(backup.pend || {})) if (qs.some((q) => q.id === itemId)) { if (v.optionId) ans[itemId] = v.optionId; else delete ans[itemId]; saveAnswer(itemId, v.optionId, v.seq); }
-  // Images (epidemic curves) are loaded up front so they show even if the connection drops later.
-  const preload = () => qs.forEach((q) => (q.images || []).forEach((src) => { const im = new Image(); im.src = src; }));
-  preload();
+  syncExam(eid);
   const draw = () => {
     const q = qs[cur];
-    const ctx = q.group && (cur === 0 || qs[cur - 1].group !== q.group || true);
     $('#qbox').innerHTML = `<p class="kicker">Question ${cur + 1} of ${qs.length}${flagged.has(q.id) ? ' · ⚑ flagged' : ''}</p>
-      ${ctx && q.stem ? `<div class="ex-stem">${esc(q.stem)}${q.images ? `<div class="ex-imgs">${q.images.map((s) => `<img src="${s}" alt="Epidemic curve" draggable="false">`).join('')}</div>` : ''}</div>` : ''}
+      ${q.group && q.stem ? `<div class="ex-stem">${esc(q.stem)}${q.images ? `<div class="ex-imgs">${q.images.map((s) => `<img src="${s}" alt="Epidemic curve" draggable="false">`).join('')}</div>` : ''}</div>` : ''}
       <h2 class="ex-q">${esc(q.text)}</h2>
       ${q.multi ? '<p class="ex-multi">☑ Select <b>all</b> correct answers — this question has more than one. It counts only if you choose exactly the right ones.</p>' : ''}
       ${q.table ? `<div class="tw"><table class="ex-table"><tr>${q.table.head.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${q.table.rows.map((r) => `<tr>${r.map((c, i) => i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`).join('')}</tr>`).join('')}</table></div>` : ''}
       <div class="ex-opts ${q.multi ? 'multi' : ''}">${q.options.map((o, i) => `<button class="ex-opt ${picked(q, o.id) ? 'on' : ''}" data-o="${o.id}"><span>${q.multi ? (picked(q, o.id) ? '✓' : '') : 'ABCDEFGH'[i]}</span>${q.multi ? `<b class="ex-l">${'ABCDEFGH'[i]}.</b> ` : ''}${esc(o.text)}</button>`).join('')}</div>`;
-    $('#qbox').querySelectorAll('.ex-opt').forEach((b) => b.onclick = async () => {
+    $('#qbox').querySelectorAll('.ex-opt').forEach((b) => b.onclick = () => {
+      if (done) return;
       let oid;
       if (q.multi) {
         const cur2 = new Set(ans[q.id] || []);
@@ -925,35 +986,32 @@ function runExam(eid, st) {
     $('#prev').disabled = cur === 0;
     $('#next').textContent = cur === qs.length - 1 ? (part.next ? `Finish ${partShort(part.title)} →` : 'Review & submit') : 'Next →';
     $('#flag').classList.toggle('on', flagged.has(q.id));
-    const n = Object.keys(ans).length;
+    const n = qs.filter((x) => ans[x.id]).length;
     $('#pg').style.width = (n / qs.length * 100) + '%';
     $('#grid').innerHTML = qs.map((x, i) => `<button class="${ans[x.id] ? 'a' : ''} ${flagged.has(x.id) ? 'f' : ''} ${i === cur ? 'c' : ''}" data-i="${i}">${i + 1}</button>`).join('');
-    $('#grid').querySelectorAll('button').forEach((b) => b.onclick = () => { cur = +b.dataset.i; draw(); window.scrollTo(0, 0); });
+    $('#grid').querySelectorAll('button').forEach((b) => b.onclick = () => { cur = +b.dataset.i; save(); draw(); window.scrollTo(0, 0); });
   };
-  $('#prev').onclick = () => { if (cur) { cur--; draw(); window.scrollTo(0, 0); } };
-  $('#next').onclick = () => { if (cur < qs.length - 1) { cur++; draw(); window.scrollTo(0, 0); } else confirmSubmit(); };
-  $('#flag').onclick = () => { const id = qs[cur].id; flagged.has(id) ? flagged.delete(id) : flagged.add(id); draw(); };
-  const submit = async (auto) => {
+  $('#prev').onclick = () => { if (cur) { cur--; save(); draw(); window.scrollTo(0, 0); } };
+  $('#next').onclick = () => { if (cur < qs.length - 1) { cur++; save(); draw(); window.scrollTo(0, 0); } else confirmSubmit(); };
+  $('#flag').onclick = () => { const id = qs[cur].id; flagged.has(id) ? flagged.delete(id) : flagged.add(id); save(); draw(); };
+  const submit = (auto) => {
     if (done) return; done = true; cleanup();
-    app.innerHTML = '<div class="exam-gate"><div class="eg-card"><h1>Submitting…</h1><p class="muted">Making sure all your answers are saved. Please keep this page open.</p></div></div>';
-    try { await queue; const r = await persist(() => send('submit', {})); try { localStorage.removeItem(LS); } catch {} showResult({ ...r, autoSubmitted: r.autoSubmitted || auto }); }
-    catch (e) { app.innerHTML = `<div class="exam-gate"><div class="eg-card"><div class="err">${esc(e.message)}</div><p>Your saved answers are kept. Enter your details again to see your result.</p><a class="btn pri" href="#exam/${eid}">Continue</a></div></div>`; }
+    if ($('#dlg').open) $('#dlg').close();
+    run.done = true; run.auto = auto; runPush(run, { k: 'sub', auto });
+    finishScreen(eid, auto);
   };
-  // Finishing a part locks it: its answers can no longer be changed.
-  const goNextPart = async () => {
-    $('#dlgBody').innerHTML = '<h2>Saving your answers…</h2>';
-    try {
-      await queue;
-      const r = await persist(() => send('next-part', {}));
-      qs = r.questions; part = r.part; cur = 0; flagged.clear(); preload();
-      Object.assign(ans, r.answers || {});
-      $('#ptitle').textContent = part.title; $('#fin').textContent = part.next ? 'Finish part' : 'Submit';
-      $('#dlg').close();
-      warn(`${part.title} has started. ${partShort(partsDoneTitle)} is closed.`);
-      draw(); window.scrollTo(0, 0);
-    } catch (e) { $('#dlgBody').innerHTML = `<div class="err">${esc(e.message)}</div><div class="bar"><button id="x">Close</button></div>`; $('#x').onclick = () => $('#dlg').close(); }
+  // Finishing a part locks it on the device at once; the server is told in order with everything else.
+  const goNextPart = () => {
+    const doneTitle = part.title;
+    runPush(run, { k: 'np', from: run.partIndex });
+    run.partIndex++; cur = 0; flagged.clear(); run.cur = 0; run.flagged = []; runSet(run);
+    qs = P().questions; part = partInfo();
+    $('#ptitle').textContent = part.title; $('#fin').textContent = part.next ? 'Finish part' : 'Submit';
+    $('#dlg').close();
+    warn(`${part.title} has started. ${partShort(doneTitle)} is closed.`);
+    draw(); window.scrollTo(0, 0);
+    syncExam(eid);
   };
-  let partsDoneTitle = '';
   const confirmSubmit = () => {
     const left = qs.filter((q) => !ans[q.id]).length;
     if (part.next) {
@@ -962,7 +1020,7 @@ function runExam(eid, st) {
         <p class="warn"><b>You cannot come back to ${esc(partShort(part.title))}</b> after moving on. The timer keeps running for the whole exam.</p>
         <div class="row bar"><button class="pri" id="ok">Go to ${esc(partShort(part.next))} →</button><button id="x">Keep working</button></div>`;
       $('#x').onclick = () => $('#dlg').close();
-      $('#ok').onclick = () => { partsDoneTitle = part.title; goNextPart(); };
+      $('#ok').onclick = goNextPart;
       $('#dlg').showModal();
       return;
     }
@@ -974,9 +1032,9 @@ function runExam(eid, st) {
     $('#dlg').showModal();
   };
   $('#fin').onclick = confirmSubmit;
-  // timer
+  // timer, on the server's clock
   const tick = () => {
-    const s = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+    const s = Math.max(0, Math.round((run.deadline - runNow(run)) / 1000));
     $('#tm').textContent = `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
     $('#tm').classList.toggle('low', s <= 300);
     if (s <= 300 && !warned5) { warned5 = true; warn('5 minutes left.'); }
@@ -985,7 +1043,7 @@ function runExam(eid, st) {
   // anti-cheating: record leaving the page, copying, printing; block copy, right-click, selection
   let lost = 0;
   const warn = (m) => { $('#ex-warn').innerHTML = `<div class="ex-alert">${esc(m)}</div>`; clearTimeout(warn.t); warn.t = setTimeout(() => { const w = $('#ex-warn'); if (w) w.innerHTML = ''; }, 6000); };
-  const ev = (type) => send('event', { type }).catch(() => {});
+  const ev = (type) => api('exam/attempt/event', { body: { token: run.token, type } }).catch(() => {});
   const onVis = () => { if (document.hidden) { lost++; ev('hidden'); } else warn(`You left the exam page (${lost}×). This is recorded and reported.`); };
   const onBlur = () => { if (!document.hidden) ev('blur'); };
   const stop = (type) => (e) => { e.preventDefault(); ev(type); warn('Copying and right-click are disabled during the exam.'); };
@@ -1009,12 +1067,27 @@ function runExam(eid, st) {
     document.removeEventListener('paste', onPaste); document.removeEventListener('contextmenu', onCtx);
     document.removeEventListener('keydown', onKey); window.removeEventListener('beforeunload', onUnload);
     document.removeEventListener('fullscreenchange', onFs);
-    window.removeEventListener('online', onOnline);
     if (window.Calc) Calc.reset();
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   }
   examCleanup = cleanup;
   draw(); tick();
+}
+
+// After submitting: shows "submitting" until everything on the device has reached the server, then the result.
+function finishScreen(eid, auto) {
+  let alive = true;
+  app.innerHTML = `<div class="exam-gate"><div class="eg-card eg-res"><span class="kicker">${auto ? 'Time is up' : 'Exam finished'}</span><h1>Submitting…</h1><div class="res-spin"></div><p class="muted">Please keep this page open until you see that your answers have been received.</p></div></div>`;
+  examCleanup = () => { alive = false; };
+  (async () => {
+    for (;;) {
+      await syncExam(eid);
+      const r = runGet(eid);
+      if (!alive) return;
+      if (r && r.result) return showResult({ ...r.result, autoSubmitted: r.result.autoSubmitted || r.auto });
+      await wait(1500);
+    }
+  })();
 }
 
 function showResult(r) {
@@ -1166,6 +1239,7 @@ async function route() {
   app.classList.toggle('wide', h in site);
   document.body.classList.remove('story-on', 'exam-on');
   if (examCleanup) { examCleanup(); examCleanup = null; }
+  if ($('#dlg').open) $('#dlg').close();
   if (storyKeys) { document.removeEventListener('keydown', storyKeys); storyKeys = null; }
   window.scrollTo(0, 0);
   try {
@@ -1181,3 +1255,5 @@ async function route() {
 }
 window.addEventListener('hashchange', route);
 route();
+// Keeps the site's files on the device so an exam page reloaded without a connection still opens.
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

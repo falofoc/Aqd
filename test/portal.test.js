@@ -428,3 +428,49 @@ test('answers held offline are accepted shortly after the deadline and flagged',
     assert.equal(adm.attempts[0].score, 1);
   } finally { srv.close(); }
 });
+
+test('exam taken fully offline: whole paper at start, late outbox accepted by answer time', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const { FileStore } = require('../lib/file-store');
+  const store = new FileStore(dir);
+  const srv = createApp({ store, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, { body, cookie } = {}) => {
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', body: body && JSON.stringify(body), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) } });
+    return { status: r.status, data: await r.json().catch(() => null) };
+  };
+  const login = async () => { const r = await fetch(base + 'login', { method: 'POST', body: JSON.stringify({ email: 'a@x.sa', password: 'adminpass' }), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json' } }); return (r.headers.get('set-cookie') || '').split(';')[0]; };
+  try {
+    const admin = await login();
+    await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(Date.now() - 36e5).toISOString(), closeAt: new Date(Date.now() + 36e5).toISOString() } });
+    const st = (await call('exam/t1/start', { body: { name: 'Sara Ali Alqahtani', scfhs: '1000000098', password: 'AFHSR26' } })).data;
+    assert.equal(st.parts.length, 2);
+    assert.deepEqual(st.parts.map((p) => p.questions.length), [25, 26]);
+    assert.ok(Number.isFinite(st.serverNow));
+    assert.ok(!JSON.stringify(st).includes('"answer"'), 'no answer keys sent');
+    const { exam } = (await call('admin/exams/t1', { cookie: admin })).data;
+    const bio = exam.items.filter((x) => x.part === 'bio'), epi = exam.items.filter((x) => x.part === 'epi');
+    // the connection only returns 90 minutes after the start (60-minute limit + 10-minute window passed):
+    const [att] = await store.all('attempts');
+    att.startedAt = new Date(Date.now() - 90 * 6e4).toISOString();
+    await store.put('attempts', att);
+    const adm0 = (await call('admin/exams/t1', { cookie: admin })).data;
+    assert.ok(adm0.attempts[0].autoSubmitted);
+    assert.equal(adm0.attempts[0].score, 0);
+    // answers made before the deadline are accepted (not those claiming a later time)
+    let at = new Date(adm0.attempts[0].startedAt).getTime() + 1000;
+    assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: bio[0].id, optionId: bio[0].answer, seq: 1, at } })).status, 200);
+    assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: bio[1].id, optionId: bio[1].answer, seq: 2, at: Date.now() } })).status, 409, 'made after the deadline');
+    // answers to part 2 before moving on are refused; the queued part change is applied by its time
+    assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: epi[0].id, optionId: epi[0].answer, seq: 3, at } })).status, 409);
+    assert.equal((await call('exam/attempt/next-part', { body: { token: st.token, from: 0, at } })).status, 200);
+    assert.equal((await call('exam/attempt/next-part', { body: { token: st.token, from: 0, at } })).status, 200, 'a repeated request is harmless');
+    assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: epi[0].id, optionId: epi[0].answer, seq: 4, at } })).status, 200);
+    assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: bio[2].id, optionId: bio[2].answer, seq: 5, at } })).status, 409, 'part 1 is closed');
+    assert.equal((await call('exam/attempt/submit', { body: { token: st.token, at } })).data.submitted, true);
+    const adm = (await call('admin/exams/t1', { cookie: admin })).data;
+    assert.equal(adm.attempts[0].score, 2);
+    assert.equal(adm.attempts[0].lateSync, 2);
+  } finally { srv.close(); }
+});
