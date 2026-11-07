@@ -967,7 +967,7 @@ function runFrom(eid, st, opts = {}) {
   const offset = (st.serverNow || Date.now()) - Date.now();
   const deadline = st.deadline ? new Date(st.deadline).getTime() : null;
   if (old && old.token === st.token && !old.done) {
-    Object.assign(old, { parts, offset, durationMin: st.durationMin || old.durationMin, closeAt: st.closeAt === undefined ? old.closeAt : st.closeAt, lockAwaySec: st.lockAwaySec ?? old.lockAwaySec, openAt: st.openAt === undefined ? old.openAt : st.openAt });
+    Object.assign(old, { parts, offset, idTail: st.idTail || old.idTail, durationMin: st.durationMin || old.durationMin, closeAt: st.closeAt === undefined ? old.closeAt : st.closeAt, lockAwaySec: st.lockAwaySec ?? old.lockAwaySec, openAt: st.openAt === undefined ? old.openAt : st.openAt });
     old.locked = [...new Set([...(old.locked || []), ...(st.locked || [])])];
     // Started on the server, or already started on this device (its clock is the one that counts).
     if (deadline && !old.begun) { old.begun = true; old.deadline = deadline; }
@@ -975,7 +975,7 @@ function runFrom(eid, st, opts = {}) {
     old.ans = { ...(st.answers || {}), ...old.ans };
     runSet(old); return old;
   }
-  const r = { eid, token: st.token, name: st.name, title: st.title, deadline, begun: st.begun !== false, durationMin: st.durationMin, closeAt: st.closeAt, ar: !!opts.ar, lockAwaySec: st.lockAwaySec ?? 10, locked: [...(st.locked || [])], openAt: st.openAt || null, offset, parts,
+  const r = { eid, token: st.token, name: st.name, idTail: st.idTail || '', title: st.title, deadline, begun: st.begun !== false, durationMin: st.durationMin, closeAt: st.closeAt, ar: !!opts.ar, lockAwaySec: st.lockAwaySec ?? 10, locked: [...(st.locked || [])], openAt: st.openAt || null, offset, parts,
     partIndex: st.partIndex || 0, ans: { ...(st.answers || {}) }, flagged: [], cur: -1, done: false, ops: [], seq: Date.now(), opSeq: 0 };
   runSet(r); return r;
 }
@@ -992,7 +992,7 @@ function runExam(eid, run) {
   const save = () => { run.flagged = [...flagged]; run.cur = cur; runSet(run); };
   const isLocked = (id) => (run.locked || []).includes(id);
   app.innerHTML = `<div class="exam" id="exam">
-    <div class="ex-wm" style="--wm:'${esc(run.name).replace(/'/g, '')}'"></div>
+    <div class="ex-wm" id="wm"></div>
     <header class="ex-bar"><div class="ex-t"><b id="ptitle">${esc(part.title || run.title)}</b><small>${esc(run.name)}</small></div>
       <div class="ex-timer" id="tm">--:--</div>
       <button id="calc" class="ex-calc" type="button" title="Calculator" aria-label="Calculator"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.5 6.5h7M8.5 11h.01M12 11h.01M15.5 11h.01M8.5 14.5h.01M12 14.5h.01M15.5 14.5h.01M8.5 18h.01M12 18h.01M15.5 18h.01"/></svg></button>
@@ -1004,6 +1004,17 @@ function runExam(eid, run) {
       <div class="ex-nav"><button id="prev">← Previous</button><button id="flag">⚑ Flag</button><button class="pri" id="next">Next →</button></div>
       <div class="ex-grid" id="grid"></div><p class="muted ex-save" id="sv"></p></main></div>`;
   // Calculator and scratchpad: one open at a time.
+  // Tracing watermark, tiled over the whole screen: name, last 4 digits of the ID and the time (Riyadh). Any photo
+  // or screenshot of the exam that gets shared shows whose screen it was and when.
+  const drawWm = () => {
+    const el = $('#wm'); if (!el) return;
+    const time = new Date(runNow(run)).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' });
+    const text = `${run.name} · ${run.idTail ? '••' + run.idTail + ' · ' : ''}${time}`.replace(/[<>&"]/g, '');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="220"><text x="210" y="120" text-anchor="middle" transform="rotate(-24 210 110)" font-family="Arial, sans-serif" font-size="19" font-weight="700" fill="#1c2b2c">${text}</text></svg>`;
+    el.style.backgroundImage = `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}")`;
+  };
+  drawWm();
+  const wmT = setInterval(drawWm, 30000);
   if (window.Calc) { Calc.reset(); $('#calc').onclick = () => { if (window.Scratch) Scratch.close(); Calc.toggle(); }; } else $('#calc').remove();
   if (window.Scratch) { Scratch.reset('exam-scratch:' + run.token); $('#scr').onclick = () => { if (window.Calc) Calc.close(); Scratch.toggle(); }; } else $('#scr').remove();
   // Crossed-out choices (kept on the device only).
@@ -1179,7 +1190,28 @@ function runExam(eid, run) {
   const stop = (type) => (e) => { e.preventDefault(); ev(type); warn('Copying and right-click are disabled during the exam.'); };
   const onCopy = stop('copy'), onPaste = stop('paste'), ctxStop = stop('contextmenu');
   const onCtx = (e) => { const row = e.target.closest && e.target.closest('.ex-row'); if (row && !done) { e.preventDefault(); toggleStrike(qs[cur].id, row.querySelector('.ex-opt').dataset.o); return; } ctxStop(e); };
-  const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && ['p', 's', 'c', 'u'].includes(e.key.toLowerCase())) { e.preventDefault(); ev(e.key.toLowerCase() === 'p' ? 'print' : 'copy'); } if (e.key === 'F12') { e.preventDefault(); ev('devtools'); } };
+  // Screenshot keys on computers (Print Screen on Windows; Cmd+Shift+3/4/5 on a Mac and Win+Shift+S when the
+  // browser receives them): the questions are hidden at once, the trainee is warned and the proctor alerted.
+  // Phones and iPads give web pages no signal for screenshots.
+  let shotT = 0, lastShot = 0;
+  const shot = () => {
+    if (done || Date.now() - lastShot < 1500) return; // key down and key up of one press count once
+    lastShot = Date.now();
+    ev('screenshot');
+    try { navigator.clipboard?.writeText(' ').catch(() => {}); } catch {}
+    guard.hidden = false; $('#g-go').hidden = true;
+    $('#g-h').textContent = 'Screenshots are not allowed';
+    $('#g-p').textContent = 'Taking pictures of the exam is not allowed. This has been recorded and reported to the proctor.';
+    clearTimeout(shotT); shotT = setTimeout(() => { if (!awayWhy()) guard.hidden = true; }, 3000);
+  };
+  const isShotKey = (e) => e.key === 'PrintScreen' || e.code === 'PrintScreen' || e.keyCode === 44
+    || (e.metaKey && e.shiftKey && ['Digit3', 'Digit4', 'Digit5', 'Digit6', 'KeyS'].includes(e.code));
+  const onKeyUp = (e) => { if (isShotKey(e)) shot(); };
+  const onKey = (e) => {
+    if (isShotKey(e)) { e.preventDefault(); shot(); return; }
+    if ((e.ctrlKey || e.metaKey) && ['p', 's', 'c', 'u'].includes(e.key.toLowerCase())) { e.preventDefault(); ev(e.key.toLowerCase() === 'p' ? 'print' : 'copy'); }
+    if (e.key === 'F12') { e.preventDefault(); ev('devtools'); }
+  };
   const onUnload = (e) => { e.preventDefault(); e.returnValue = ''; };
   const onFs = () => { if (!document.fullscreenElement) ev('fullscreen-exit'); };
   document.addEventListener('visibilitychange', onVis);
@@ -1190,13 +1222,15 @@ function runExam(eid, run) {
   document.addEventListener('copy', onCopy); document.addEventListener('cut', onCopy);
   document.addEventListener('paste', onPaste); document.addEventListener('contextmenu', onCtx);
   document.addEventListener('keydown', onKey);
+  document.addEventListener('keyup', onKeyUp);
   window.addEventListener('beforeunload', onUnload);
   document.addEventListener('fullscreenchange', onFs);
   // Full screen on computers only: on iPad, Safari warns about typing in full screen, which interrupts the exam.
   if (matchMedia('(pointer:fine)').matches) { try { document.documentElement.requestFullscreen?.().catch(() => {}); } catch {} }
   const timer = setInterval(tick, 500);
   function cleanup() {
-    clearInterval(timer); clearInterval(pulseT);
+    clearInterval(timer); clearInterval(pulseT); clearInterval(wmT); clearTimeout(shotT);
+    document.removeEventListener('keyup', onKeyUp);
     document.removeEventListener('visibilitychange', onVis); window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onFocus);
     window.removeEventListener('resize', onResize); window.removeEventListener('orientationchange', onResize); clearTimeout(resizeT);
     document.removeEventListener('copy', onCopy); document.removeEventListener('cut', onCopy);
@@ -1605,7 +1639,7 @@ async function viewExamAdmin(eid) {
     ${d.attempts.map((a) => `<tr><td class="ttl">${esc(a.name)}${a.receipt ? ` <code class="rc-adm" title="Receipt code shown to the trainee">${esc(a.receipt)}</code>` : ''}${a.anytime ? ' <span class="tag t-late" title="Signed in with the super password (outside the exam window)">super password</span>' : ''}${a.email ? `<br><small class="muted">${esc(a.email)}</small>` : ''}</td><td data-label="ID">${esc(a.scfhs)}</td>
       <td class="n" data-label="Score">${a.submittedAt ? `<b>${a.score}/${a.total}</b> · ${a.percent}%${a.byPart && e.parts ? `<br><small class="muted">${e.parts.map((pt) => a.byPart[pt.id] ? `${esc(partShort(pt.title))}: ${a.byPart[pt.id].score}/${a.byPart[pt.id].total}` : '').join(' · ')}</small>` : ''}${a.autoSubmitted ? '<br><small class="muted">auto-submitted</small>' : ''}` : a.startedAt ? '<span class="tag t-late">In progress</span>' : '<span class="tag">Not started</span>'}</td>
       <td data-label="Time used">${a.submittedAt ? Math.round((new Date(a.submittedAt) - new Date(a.startedAt)) / 60000) + ' min' : a.startedAt ? `until ${fmt(a.deadline)}` : 'downloaded, not started'}</td>
-      <td data-label="Integrity">${(a.focusLost || 0) ? `<span class="tag ${a.focusLost > 3 ? 't-closed' : 't-late'}">left page ${a.focusLost}×${a.awayMs ? ' · ' + mmss(a.awayMs) : ''}</span>${a.splitScreen ? ` <span class="tag t-closed">split screen ${a.splitScreen}×</span>` : ''}${awaySummary(e, a)}` : '<span class="tag t-done">OK</span>'}${(a.events || []).some((x) => ['copy', 'paste', 'print', 'devtools', 'contextmenu'].includes(x.type)) ? ' <span class="tag t-late">copy/print attempts</span>' : ''}${a.resumes ? ` <small class="muted">resumed ${a.resumes}×</small>` : ''}${a.lateSync ? ` <small class="muted" title="Answers saved on the device during a connection drop and received after the time limit">${a.lateSync} answer(s) synced late</small>` : ''}</td>
+      <td data-label="Integrity">${(a.focusLost || 0) ? `<span class="tag ${a.focusLost > 3 ? 't-closed' : 't-late'}">left page ${a.focusLost}×${a.awayMs ? ' · ' + mmss(a.awayMs) : ''}</span>${a.splitScreen ? ` <span class="tag t-closed">split screen ${a.splitScreen}×</span>` : ''}${awaySummary(e, a)}` : '<span class="tag t-done">OK</span>'}${(a.events || []).some((x) => x.type === 'screenshot') ? ` <span class="tag t-closed">screenshot key ${(a.events || []).filter((x) => x.type === 'screenshot').length}×</span>` : ''}${(a.events || []).some((x) => ['copy', 'paste', 'print', 'devtools', 'contextmenu'].includes(x.type)) ? ' <span class="tag t-late">copy/print attempts</span>' : ''}${a.resumes ? ` <small class="muted">resumed ${a.resumes}×</small>` : ''}${a.lateSync ? ` <small class="muted" title="Answers saved on the device during a connection drop and received after the time limit">${a.lateSync} answer(s) synced late</small>` : ''}</td>
       <td><div class="row"><button data-view="${a.id}" data-free>Answers</button><button class="bad" data-del="${a.id}">Reset</button></div></td></tr>`).join('') || '<tr><td class="muted">No attempts yet.</td></tr>'}</table></div></div>
   <div class="card" data-lock><h3>Questions, key and item analysis</h3>
     <p class="muted">Difficulty = share answering correctly. Discrimination = upper 27% minus lower 27% (≥0.3 good, &lt;0.2 poor, negative = check the key). Changing the key or excluding a question re-grades everyone immediately.</p>
