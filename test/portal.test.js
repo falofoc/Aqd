@@ -577,3 +577,47 @@ test('laptops and tablets only: phones are refused', async () => {
     assert.ok((await call('exam/t1/start', { body: me(6), ua: IPHONE })).data.token, 'allowed when the setting is off');
   } finally { srv.close(); }
 });
+
+test('grading follows the chosen answer, not its position, when choices are shuffled', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, { body, cookie } = {}) => {
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', body: body && JSON.stringify(body), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) } });
+    return { status: r.status, data: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  try {
+    const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
+    await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(Date.now() - 6e4).toISOString(), closeAt: new Date(Date.now() + 36e5).toISOString() } });
+    const { exam } = (await call('admin/exams/t1', { cookie: admin })).data;
+    // the correct answers as TEXT, the way a trainee recognises them on screen
+    const keyText = Object.fromEntries(exam.items.map((it) => [it.id, (Array.isArray(it.answer) ? it.answer : [it.answer]).map((id) => it.options.find((o) => o.id === id).text)]));
+    const sit = async (n, chooseRight) => {
+      const st = (await call('exam/t1/start', { body: { name: 'Test Trainee Number', scfhs: '10000000' + n, password: 'AFHSR26' } })).data;
+      const orders = {};
+      let seq = 0;
+      for (const [pi, part] of st.parts.entries()) {
+        for (const q of part.questions) {
+          orders[q.id] = q.options.map((o) => o.text).join('|');
+          const right = q.options.filter((o) => keyText[q.id].includes(o.text)).map((o) => o.id);
+          const wrong = q.options.find((o) => !keyText[q.id].includes(o.text)).id;
+          const optionId = chooseRight ? (q.multi ? right : right[0]) : (q.multi ? [wrong] : wrong);
+          assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: q.id, optionId, seq: ++seq } })).status, 200);
+        }
+        if (pi < st.parts.length - 1) await call('exam/attempt/next-part', { body: { token: st.token, from: pi } });
+      }
+      await call('exam/attempt/submit', { body: { token: st.token } });
+      return orders;
+    };
+    const o1 = await sit(11, true), o2 = await sit(12, true), o3 = await sit(13, false);
+    const differs = Object.keys(o1).filter((id) => o1[id] !== o2[id]).length;
+    assert.ok(differs >= 20, `choices are shuffled per trainee (${differs} questions in a different order)`);
+    // curve questions keep their order (A–D are printed on the figures)
+    for (const it of exam.items.filter((x) => x.fixedOptions)) assert.equal(o1[it.id], o2[it.id]);
+    const res = (await call('admin/exams/t1', { cookie: admin })).data.attempts;
+    const by = (id) => res.find((a) => a.scfhs === id);
+    assert.deepEqual([by('1000000011').percent, by('1000000012').percent], [100, 100], 'right answers count wherever they appear');
+    assert.equal(by('1000000013').percent, 0, 'wrong answers never count');
+  } finally { srv.close(); }
+});
