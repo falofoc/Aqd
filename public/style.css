@@ -506,14 +506,15 @@ button.big{padding:14px;font-size:1.1rem}
 .rc-bad small{opacity:.8}
 .rc-wait{background:#fbefd9;color:#8f5300;border-radius:12px;padding:10px 12px;line-height:1.6}
 .rc-adm{font:700 .75rem ui-monospace,monospace;background:#e3f2e4;color:#1e4d22;border-radius:6px;padding:1px 6px;letter-spacing:.06em}
-/* crossed-out choices */
-.ex-row{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:stretch}
-.ex-opt i{font-style:normal}
-.ex-strike{border:1px solid var(--ln);background:var(--sf);color:#7a8590;border-radius:12px;width:44px;font-size:1.15rem;display:grid;place-items:center;padding:0}
-.ex-strike:hover{color:var(--bad);border-color:#d8b4ae}
+/* crossed-out choices: a small faint mark inside each choice (or right-click / long press) */
+.ex-row{display:block}
+.ex-opt{position:relative;width:100%}
+.ex-opt i{font-style:normal;flex:1;padding-right:26px}
+.ex-x{position:absolute;top:6px;right:8px;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:700 .85rem/1 "IBM Plex Sans",sans-serif;font-style:normal;color:#8b959e;opacity:.45;border:1px solid transparent}
+.ex-opt:hover .ex-x{opacity:.9;border-color:#d5d9dd}
 .ex-row.x .ex-opt{opacity:.5;border-style:dashed}
 .ex-row.x .ex-opt i{text-decoration:line-through;text-decoration-thickness:2px;color:#56666a}
-.ex-row.x .ex-strike{color:var(--ac)}
+.ex-row.x .ex-x{opacity:.9;color:var(--ac)}
 /* scratchpad */
 .sp{position:fixed;z-index:30;right:16px;bottom:16px;width:min(520px,calc(100vw - 32px));height:min(460px,calc(100vh - 110px));background:#fff;border:1px solid #d5d9dd;border-radius:16px;box-shadow:0 18px 50px #0003;display:grid;grid-template-rows:auto 1fr auto;overflow:hidden;font-family:"IBM Plex Sans",sans-serif;user-select:none;-webkit-user-select:none}
 .sp[hidden]{display:none}

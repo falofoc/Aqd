@@ -741,7 +741,18 @@ async function viewExamList() {
 
 async function viewExam(eid) {
   // An exam already started on this device opens straight away, with or without a connection.
-  const local = runGet(eid);
+  let local = runGet(eid);
+  // With a connection, make sure this device's copy is still valid (the admin may have reset the attempt).
+  if (local && !(local.done && local.result)) {
+    try {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 5000);
+      const st = await api('exam/attempt/status', { body: { token: local.token }, signal: ctl.signal }); clearTimeout(t);
+      // the exam times may have changed since the download
+      if (!local.begun) { Object.assign(local, { openAt: st.openAt, closeAt: st.closeAt, durationMin: st.durationMin || local.durationMin, offset: (st.serverNow || Date.now()) - Date.now() }); runWrite(local); }
+    } catch (e) {
+      if (e.status === 401 || e.status === 404) { try { localStorage.removeItem(RUN_KEY + eid); localStorage.removeItem('exam-scratch:' + local.token); } catch {} local = null; }
+    }
+  }
   if (local && !local.done) { document.body.classList.add('exam-on'); return local.begun ? runExam(eid, local) : prepareExam(eid, local); }
   if (local && local.done && !local.result) { document.body.classList.add('exam-on'); return finishScreen(eid, local.auto); }
   const info = await api('exam/' + eid);
@@ -757,20 +768,16 @@ async function viewExam(eid) {
   // Exams with a trainee list are shown in Arabic.
   const ar = info.roster && !(ME && ME.role === 'admin');
   const T = (en, arText) => (ar ? arText : en);
+  // Only the essential instructions.
   const rules = ar ? [
-    `بعد الدخول يُحمَّل الاختبار على جهازك أولاً. مدة الاختبار <b>${info.durationMin} دقيقة</b> تبدأ عند الضغط على "ابدأ"، والوقت يستمر حتى لو أغلقت الصفحة، ويُسلَّم الاختبار تلقائياً عند انتهاء الوقت.`,
-    ...(info.noPhones ? ['<b>الأجهزة المسموحة: لابتوب أو تابلت فقط.</b> الجوالات غير مسموحة.'] : []),
-    'محاولة واحدة لكل متدرب.',
-    ...(info.lockAwaySec ? [`<b>الخروج من صفحة الاختبار</b> (إلى تطبيق أو نافذة أخرى) أكثر من ${info.lockAwaySec} ثوانٍ <b>يقفل السؤال المفتوح أمامك</b>، فلا يمكن تغيير إجابته بعد ذلك.`] : []),
-    'ترتيب الأسئلة والخيارات مختلف لكل متدرب.',
-    'ابقَ في صفحة الاختبار: الخروج منها أو التنقل بين التطبيقات أو النسخ يُسجَّل ويُرفع للبرنامج.',
-    info.showScore ? 'إجاباتك تُحفظ أولاً بأول، وتظهر لك درجتك في النهاية دون الإجابات الصحيحة.' : 'إجاباتك تُحفظ أولاً بأول. النتائج يعلنها البرنامج لاحقاً.'] : ['After you sign in, the exam is first downloaded to your device. You have <b>' + info.durationMin + ' minutes</b> from the moment you press Start. The timer keeps running if you close the page; the exam is submitted automatically when time runs out.',
-    ...(info.noPhones ? ['<b>Allowed devices: laptop or tablet only.</b> Phones are not allowed.'] : []),
-    'One attempt per ID number.',
-    ...(info.lockAwaySec ? [`<b>Leaving the exam page</b> (another app or window) for more than ${info.lockAwaySec} seconds <b>locks the question on screen</b>; its answer can no longer be changed.`] : []),
-    'Questions and choices appear in a different order for each trainee.',
-    'Stay on this page: leaving it, switching apps or copying is recorded and reported to the program.',
-    info.showScore ? 'Your answers are saved as you choose them. You will see your score at the end; the correct answers are not shown.' : 'Your answers are saved as you choose them. Results will be announced by the program later.'];
+    `مدة الاختبار <b>${info.durationMin} دقيقة</b>، تبدأ عند الضغط على "ابدأ"، ويُسلَّم تلقائياً عند انتهاء الوقت.`,
+    ...(info.noPhones ? ['<b>لابتوب أو تابلت فقط</b>، والجوال غير مسموح.'] : []),
+    ...(info.lockAwaySec ? [`الخروج من صفحة الاختبار أو تقسيم الشاشة أكثر من ${info.lockAwaySec} ثوانٍ <b>يقفل السؤال</b>.`] : []),
+    'محاولة واحدة لكل متدرب.'] : [
+    `You have <b>${info.durationMin} minutes</b> from the moment you press Start; the exam is submitted automatically when time runs out.`,
+    ...(info.noPhones ? ['<b>Laptop or tablet only</b>; phones are not allowed.'] : []),
+    ...(info.lockAwaySec ? [`Leaving the exam page or using split screen for more than ${info.lockAwaySec} seconds <b>locks the question</b>.`] : []),
+    'One attempt per ID number.'];
   app.innerHTML = `<div class="exam-gate">
     <div class="eg-card ${ar ? 'ar-card' : ''}" ${ar ? 'dir="rtl"' : ''}><img src="brand/shield.png" alt="" width="48" height="56"><span class="kicker">${esc(S.board)}</span><h1>${esc(info.title)}</h1>
       <div class="eg-facts"><div><b>${info.count}</b><span>${T('questions', 'سؤال')}</span></div><div><b>${info.durationMin}</b><span>${T('minutes', 'دقيقة')}</span></div><div><b>${new Date(info.openAt).toLocaleDateString(ar ? 'ar-SA-u-ca-gregory-nu-latn' : 'en-GB', { weekday: ar ? 'long' : 'short', day: 'numeric', month: ar ? 'long' : 'short', timeZone: 'Asia/Riyadh' })}</b><span>${new Date(info.openAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}–${new Date(info.closeAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}</span></div></div>
@@ -960,7 +967,7 @@ function runFrom(eid, st, opts = {}) {
   const offset = (st.serverNow || Date.now()) - Date.now();
   const deadline = st.deadline ? new Date(st.deadline).getTime() : null;
   if (old && old.token === st.token && !old.done) {
-    Object.assign(old, { parts, offset, durationMin: st.durationMin || old.durationMin, closeAt: st.closeAt === undefined ? old.closeAt : st.closeAt, lockAwaySec: st.lockAwaySec ?? old.lockAwaySec });
+    Object.assign(old, { parts, offset, durationMin: st.durationMin || old.durationMin, closeAt: st.closeAt === undefined ? old.closeAt : st.closeAt, lockAwaySec: st.lockAwaySec ?? old.lockAwaySec, openAt: st.openAt === undefined ? old.openAt : st.openAt });
     old.locked = [...new Set([...(old.locked || []), ...(st.locked || [])])];
     // Started on the server, or already started on this device (its clock is the one that counts).
     if (deadline && !old.begun) { old.begun = true; old.deadline = deadline; }
@@ -968,7 +975,7 @@ function runFrom(eid, st, opts = {}) {
     old.ans = { ...(st.answers || {}), ...old.ans };
     runSet(old); return old;
   }
-  const r = { eid, token: st.token, name: st.name, title: st.title, deadline, begun: st.begun !== false, durationMin: st.durationMin, closeAt: st.closeAt, ar: !!opts.ar, lockAwaySec: st.lockAwaySec ?? 10, locked: [...(st.locked || [])], offset, parts,
+  const r = { eid, token: st.token, name: st.name, title: st.title, deadline, begun: st.begun !== false, durationMin: st.durationMin, closeAt: st.closeAt, ar: !!opts.ar, lockAwaySec: st.lockAwaySec ?? 10, locked: [...(st.locked || [])], openAt: st.openAt || null, offset, parts,
     partIndex: st.partIndex || 0, ans: { ...(st.answers || {}) }, flagged: [], cur: -1, done: false, ops: [], seq: Date.now(), opSeq: 0 };
   runSet(r); return r;
 }
@@ -1002,6 +1009,7 @@ function runExam(eid, run) {
   // Crossed-out choices (kept on the device only).
   run.struck = run.struck || {};
   const struck = (qid, oid) => (run.struck[qid] || []).includes(oid);
+  let skipTapUntil = 0;
   const toggleStrike = (qid, oid) => { const l = new Set(run.struck[qid] || []); l.has(oid) ? l.delete(oid) : l.add(oid); run.struck[qid] = [...l]; runSet(run); draw(); };
   // Images (epidemic curves) of every part are loaded now, so they show without a connection later.
   parts.forEach((pt) => pt.questions.forEach((q) => (q.images || []).forEach((src) => { const im = new Image(); im.src = src; })));
@@ -1020,10 +1028,15 @@ function runExam(eid, run) {
       ${isLocked(q.id) ? '<div class="ex-lock">🔒 This question is locked because you left the exam page. Its answer stays as it was.</div>' : ''}
       ${q.multi ? '<p class="ex-multi">☑ Select <b>all</b> correct answers — this question has more than one. It counts only if you choose exactly the right ones.</p>' : ''}
       ${q.table ? `<div class="tw"><table class="ex-table"><tr>${q.table.head.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${q.table.rows.map((r) => `<tr>${r.map((c, i) => i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`).join('')}</tr>`).join('')}</table></div>` : ''}
-      <div class="ex-opts ${q.multi ? 'multi' : ''} ${isLocked(q.id) ? 'locked' : ''}">${q.options.map((o, i) => `<div class="ex-row ${struck(q.id, o.id) ? 'x' : ''}"><button class="ex-opt ${picked(q, o.id) ? 'on' : ''}" data-o="${o.id}"><span>${q.multi ? (picked(q, o.id) ? '✓' : '') : 'ABCDEFGH'[i]}</span>${q.multi ? `<b class="ex-l">${'ABCDEFGH'[i]}.</b> ` : ''}<i>${esc(o.text)}</i></button><button type="button" class="ex-strike" data-x="${o.id}" title="${struck(q.id, o.id) ? 'Restore this choice' : 'Cross out this choice'}" aria-label="${struck(q.id, o.id) ? 'Restore' : 'Cross out'} choice ${'ABCDEFGH'[i]}">${struck(q.id, o.id) ? '↺' : '⊘'}</button></div>`).join('')}</div>`;
-    $('#qbox').querySelectorAll('.ex-strike').forEach((b) => b.onclick = () => toggleStrike(q.id, b.dataset.x));
+      <div class="ex-opts ${q.multi ? 'multi' : ''} ${isLocked(q.id) ? 'locked' : ''}">${q.options.map((o, i) => `<div class="ex-row ${struck(q.id, o.id) ? 'x' : ''}"><button class="ex-opt ${picked(q, o.id) ? 'on' : ''}" data-o="${o.id}"><span>${q.multi ? (picked(q, o.id) ? '✓' : '') : 'ABCDEFGH'[i]}</span>${q.multi ? `<b class="ex-l">${'ABCDEFGH'[i]}.</b> ` : ''}<i>${esc(o.text)}</i><em class="ex-x" title="${struck(q.id, o.id) ? 'Restore this choice' : 'Cross out this choice'}" aria-label="${struck(q.id, o.id) ? 'Restore' : 'Cross out'} choice ${'ABCDEFGH'[i]}">${struck(q.id, o.id) ? '↺' : '–'}</em></button></div>`).join('')}</div>`;
     if (window.Scratch) Scratch.setPage(q.id, `Question ${cur + 1}`);
-    $('#qbox').querySelectorAll('.ex-opt').forEach((b) => b.onclick = () => {
+    $('#qbox').querySelectorAll('.ex-opt').forEach((b) => {
+      let pressT = 0;
+      b.addEventListener('pointerdown', (e) => { if (e.pointerType === 'mouse') return; pressT = setTimeout(() => { skipTapUntil = Date.now() + 800; toggleStrike(q.id, b.dataset.o); }, 550); });
+      ['pointerup', 'pointerleave', 'pointercancel', 'pointermove'].forEach((t) => b.addEventListener(t, (e) => { if (t !== 'pointermove' || Math.abs(e.movementX) + Math.abs(e.movementY) > 6) clearTimeout(pressT); }));
+      b.onclick = (ev) => {
+      if (Date.now() < skipTapUntil) return; // the end of a long press is not a tap
+      if (ev.target.closest('.ex-x')) { toggleStrike(q.id, b.dataset.o); return; }
       if (done || isLocked(q.id)) return;
       let oid;
       if (q.multi) {
@@ -1035,6 +1048,7 @@ function runExam(eid, run) {
       if (struck(q.id, b.dataset.o) && (Array.isArray(oid) ? oid.includes(b.dataset.o) : oid === b.dataset.o)) run.struck[q.id] = run.struck[q.id].filter((x) => x !== b.dataset.o);
       draw();
       saveAnswer(q.id, oid);
+      };
     });
     $('#prev').disabled = cur === 0;
     $('#next').textContent = cur === qs.length - 1 ? (part.next ? `Finish ${partShort(part.title)} →` : 'Review & submit') : 'Next →';
@@ -1120,7 +1134,9 @@ function runExam(eid, run) {
   guard.innerHTML = '<div><b id="g-h"></b><p id="g-p"></p><button class="pri" type="button" id="g-go">Continue</button></div>';
   $('#exam').appendChild(guard);
   $('#g-go').onclick = () => { window.focus(); setTimeout(onAwayChange, 50); };
-  const awayWhy = () => (document.hidden ? 'app' : splitScreen() ? 'split' : !document.hasFocus() ? 'window' : '');
+  // On tablets the window "loses focus" for system messages (e.g. iPad alerts), so only hidden/split count there.
+  const fine = matchMedia('(pointer:fine)').matches;
+  const awayWhy = () => (document.hidden ? 'app' : splitScreen() ? 'split' : fine && !document.hasFocus() ? 'window' : '');
   const onAwayChange = () => {
     if (done) return;
     const why = awayWhy();
@@ -1165,7 +1181,8 @@ function runExam(eid, run) {
   document.addEventListener('keydown', onKey);
   window.addEventListener('beforeunload', onUnload);
   document.addEventListener('fullscreenchange', onFs);
-  try { document.documentElement.requestFullscreen?.().catch(() => {}); } catch {}
+  // Full screen on computers only: on iPad, Safari warns about typing in full screen, which interrupts the exam.
+  if (matchMedia('(pointer:fine)').matches) { try { document.documentElement.requestFullscreen?.().catch(() => {}); } catch {} }
   const timer = setInterval(tick, 500);
   function cleanup() {
     clearInterval(timer);
@@ -1227,7 +1244,7 @@ function offlineSupport() {
 function deviceLine(ar) {
   const d = offlineSupport();
   const T = (en, a) => (ar ? a : en);
-  if (d.full) return `<div class="dev ok">✓ ${T('This device supports taking the exam without internet after it is downloaded.', 'هذا الجهاز يدعم حل الاختبار بدون إنترنت بعد تحميله.')}</div>`;
+  if (d.full) return '';
   return `<div class="dev bad">⚠ ${T('This browser cannot keep the exam if the page is reloaded without internet. Open the link in Safari (iPhone/iPad) or Chrome (Android/computer), not inside another app or a private window.', 'هذا المتصفح لا يحفظ الاختبار إذا أُعيد تحميل الصفحة بدون إنترنت. افتح الرابط في Safari (آيفون/آيباد) أو Chrome (أندرويد/كمبيوتر)، وليس داخل تطبيق آخر أو نافذة تصفح خاص.')}</div>`;
 }
 
@@ -1287,6 +1304,19 @@ function prepareExam(eid, run) {
       ${filesOk ? '' : `<div class="dev bad">⚠ ${T('This browser will not reopen the exam if the page is reloaded without internet. Do not close or reload the page during the exam.', 'هذا المتصفح لن يعيد فتح الاختبار إذا أُعيد تحميل الصفحة بدون إنترنت. لا تغلق الصفحة ولا تعيد تحميلها أثناء الاختبار.')}</div>`}
       <button class="pri big" id="pp-go" type="button" ${ready ? '' : 'disabled'}>${T('Start the exam', 'ابدأ الاختبار')}</button>`;
     if ($('#pp-retry')) $('#pp-retry').onclick = () => prepareExam(eid, runGet(eid) || run);
+    // The Start button works only from the opening time (the server checks this too).
+    const openAt = run.openAt ? new Date(run.openAt).getTime() : 0;
+    if (ready && openAt) {
+      const go = $('#pp-go'), label = go.textContent;
+      const tickOpen = () => {
+        if (!alive || !$('#pp-go')) return clearInterval(ot);
+        const s = Math.ceil((openAt - runNow(runGet(eid) || run)) / 1000);
+        if (s <= 0) { go.disabled = false; go.textContent = label; clearInterval(ot); return; }
+        go.disabled = true;
+        go.textContent = `${T('Opens in', 'يفتح بعد')} ${Math.floor(s / 86400) ? Math.floor(s / 86400) + (ar ? ' يوم ' : ' d ') : ''}${pad(Math.floor(s / 3600) % 24)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
+      };
+      const ot = setInterval(tickOpen, 1000); tickOpen();
+    }
     $('#pp-go').onclick = () => {
       const r = runGet(eid) || run;
       if (r.begun) return runExam(eid, r);
