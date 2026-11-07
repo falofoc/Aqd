@@ -10,7 +10,7 @@ async function api(path, opts = {}) {
   const headers = { 'X-Requested-With': 'portal', ...(opts.headers || {}) };
   let body = opts.body;
   if (body && !(body instanceof Blob)) { body = JSON.stringify(body); headers['Content-Type'] = 'application/json'; }
-  const r = await fetch('/api/' + path, { method: opts.method || (body ? 'POST' : 'GET'), headers, body, signal: opts.signal });
+  const r = await fetch('/api/' + path, { method: opts.method || (body ? 'POST' : 'GET'), headers, body, signal: opts.signal, keepalive: !!opts.keepalive });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(data.message || 'Error'), { status: r.status });
   return data;
@@ -1019,6 +1019,16 @@ function runExam(eid, run) {
     syncExam(eid);
   };
   syncExam(eid);
+  // Live pulse for the proctor: progress, current question and whether the trainee is outside the page now.
+  // Fire-and-forget (lost when offline); sent every 15 s and at once when the trainee leaves or comes back.
+  const pulse = () => {
+    if (done) return;
+    const all = parts.flatMap((p) => p.questions);
+    const ctl = new AbortController(); setTimeout(() => ctl.abort(), 5000);
+    api('exam/attempt/hb', { keepalive: true, signal: ctl.signal, body: { token: run.token, answered: all.filter((q) => ans[q.id]).length, total: all.length, q: cur + 1, part: run.partIndex + 1,
+      locked: (run.locked || []).length, away: !!run.away, why: run.away?.why, awaySince: run.away?.t } }).catch(() => {});
+  };
+  const pulseT = setInterval(pulse, 15000);
   const draw = () => {
     const q = qs[cur];
     $('#qbox').innerHTML = `<p class="kicker">Question ${cur + 1} of ${qs.length}${flagged.has(q.id) ? ' · ⚑ flagged' : ''}</p>
@@ -1114,7 +1124,7 @@ function runExam(eid, run) {
   const warn = (m) => { $('#ex-warn').innerHTML = `<div class="ex-alert">${esc(m)}</div>`; clearTimeout(warn.t); warn.t = setTimeout(() => { const w = $('#ex-warn'); if (w) w.innerHTML = ''; }, 6000); };
   const ev = (type) => api('exam/attempt/event', { body: { token: run.token, type } }).catch(() => {});
   // Leaving the page: which question was on screen and for how long (kept on the device, sent with the answers).
-  const awayStart = (why) => { if (!run.away) { run.away = { t: runNow(run), itemId: qs[cur]?.id, why }; runSet(run); } };
+  const awayStart = (why) => { if (!run.away) { run.away = { t: runNow(run), itemId: qs[cur]?.id, why }; runSet(run); pulse(); } };
   const lockMs = (run.lockAwaySec ?? 10) * 1000;
   const awayEnd = () => {
     if (!run.away) return 0;
@@ -1124,6 +1134,7 @@ function runExam(eid, run) {
     if (itemId && lockMs && ms >= lockMs && !(run.locked || []).includes(itemId)) run.locked = [...(run.locked || []), itemId];
     if (itemId) runPush(run, { k: 'ev', type: 'away', itemId, ms, from: t, why }); else runSet(run);
     syncExam(eid);
+    pulse();
     return ms;
   };
   // Away = the page is hidden (another app or tab), another window or app has the focus, or the exam shares the
@@ -1185,7 +1196,7 @@ function runExam(eid, run) {
   if (matchMedia('(pointer:fine)').matches) { try { document.documentElement.requestFullscreen?.().catch(() => {}); } catch {} }
   const timer = setInterval(tick, 500);
   function cleanup() {
-    clearInterval(timer);
+    clearInterval(timer); clearInterval(pulseT);
     document.removeEventListener('visibilitychange', onVis); window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onFocus);
     window.removeEventListener('resize', onResize); window.removeEventListener('orientationchange', onResize); clearTimeout(resizeT);
     document.removeEventListener('copy', onCopy); document.removeEventListener('cut', onCopy);
@@ -1198,7 +1209,7 @@ function runExam(eid, run) {
   }
   examCleanup = cleanup;
   awayEnd();
-  draw(); tick();
+  draw(); tick(); pulse();
   setTimeout(onAwayChange, 300);
 }
 
@@ -1437,6 +1448,91 @@ const keyLetters = (it) => it.options.map((o, i) => (isKey(it, o.id) ? 'ABCDEFGH
 const ansLetters = (it, c) => it.options.map((o, i) => ((Array.isArray(c) ? c.includes(o.id) : c === o.id) ? 'ABCDEFGH'[i] : '')).join('');
 const ansRight = (it, c) => ansLetters(it, c) === keyLetters(it);
 
+// ---------- Live proctor view ----------
+// For the exam proctor (admin, or anyone with the secret proctor link): every trainee's state and the alerts worth
+// walking over for. Serious alerts sound, vibrate and stay on top until marked as seen.
+async function viewProctor(eid, token) {
+  document.body.classList.add('exam-on');
+  const ACK = 'proctor-ack:' + eid;
+  const acked = new Set((() => { try { return JSON.parse(localStorage.getItem(ACK)) || []; } catch { return []; } })());
+  const saveAck = () => { try { localStorage.setItem(ACK, JSON.stringify([...acked].slice(-2000))); } catch {} };
+  let known = null, sound = false, onlyHigh = false, alive = true, data = null, failed = 0, audio = null, wake = null, focus = null;
+  app.innerHTML = `<div class="pr" dir="rtl"><header class="pr-top"><div><b id="pr-title">المراقبة المباشرة</b><small id="pr-clock" dir="ltr"></small></div>
+      <div class="pr-counts" id="pr-counts"></div>
+      <button class="pr-snd" id="pr-snd" type="button">🔔 تفعيل التنبيه الصوتي</button></header>
+    <div id="pr-net"></div><div id="pr-banner" class="pr-banner"></div>
+    <div class="pr-main"><section><h3>المختبرون</h3><div class="pr-grid" id="pr-grid"></div></section>
+      <aside><div class="pr-feed-h"><h3>سجل التنبيهات</h3><label><input type="checkbox" id="pr-only"> المهمة فقط</label></div><ol class="pr-feed" id="pr-feed"></ol></aside></div></div>`;
+  const beep = () => {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      [0, 0.22].forEach((d, i) => { const o = audio.createOscillator(), g = audio.createGain(); o.frequency.value = i ? 660 : 880; o.connect(g); g.connect(audio.destination); g.gain.setValueAtTime(0.0001, audio.currentTime + d); g.gain.exponentialRampToValueAtTime(0.35, audio.currentTime + d + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + d + 0.18); o.start(audio.currentTime + d); o.stop(audio.currentTime + d + 0.2); });
+    } catch {}
+    try { navigator.vibrate?.([250, 120, 250]); } catch {}
+  };
+  $('#pr-snd').onclick = async () => {
+    sound = !sound; $('#pr-snd').textContent = sound ? '🔔 التنبيه الصوتي يعمل' : '🔕 التنبيه الصوتي متوقف'; $('#pr-snd').classList.toggle('on', sound);
+    if (sound) { beep(); try { wake = await navigator.wakeLock?.request('screen'); } catch {} }
+  };
+  $('#pr-only').onchange = (ev) => { onlyHigh = ev.target.checked; draw(); };
+  const LEVEL = { high: 'عاجل', mid: 'متابعة', low: 'للعلم' };
+  const timeOf = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Riyadh' });
+  const left = (d) => { if (!d) return ''; const s = Math.max(0, Math.round((new Date(d) - Date.now()) / 1000)); return `${Math.floor(s / 60)}:${pad(s % 60)}`; };
+  function draw() {
+    if (!data || !$('#pr-grid')) return;
+    const T = data.trainees;
+    $('#pr-title').textContent = data.exam.title;
+    const n = (st) => T.filter((t) => t.status === st).length;
+    const open = data.alerts.filter((a) => a.level === 'high' && !acked.has(a.id) && (a.live || !known || !known.has(a.id) || a.fresh));
+    $('#pr-counts').innerHTML = `<span>يختبر الآن <b>${n('active')}</b></span><span>لم يبدأ <b>${n('ready')}</b></span><span>سلّم <b>${n('submitted') + n('ended')}</b></span><span class="${T.some((t) => t.outNow) ? 'hot' : ''}">خارج الصفحة الآن <b>${T.filter((t) => t.outNow).length}</b></span>`;
+    // banner: serious alerts not yet marked as seen
+    $('#pr-banner').innerHTML = open.slice(0, 4).map((a) => `<div class="pr-al ${a.live ? 'live' : ''}" data-tr="${a.attemptId}"><span>⚠</span><div><b>${esc(a.name)}</b><small>${esc(a.text)} · <span dir="ltr">${timeOf(a.t)}</span></small></div><button type="button" data-ack="${esc(a.id)}">تم ✓</button></div>`).join('') + (open.length > 4 ? `<p class="muted">و${open.length - 4} تنبيهات أخرى في السجل</p>` : '');
+    $('#pr-banner').querySelectorAll('[data-ack]').forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); acked.add(b.dataset.ack); saveAck(); draw(); });
+    $('#pr-banner').querySelectorAll('.pr-al').forEach((el) => el.onclick = () => { focus = el.dataset.tr; draw(); document.querySelector(`[data-card="${focus}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+    const hot = new Set(open.map((a) => a.attemptId));
+    const order = { active: 0, ready: 1, ended: 2, submitted: 3 };
+    const sorted = [...T].sort((a, b) => (b.outNow - a.outNow) || (hot.has(b.id) - hot.has(a.id)) || (order[a.status] - order[b.status]) || (b.risk - a.risk) || a.name.localeCompare(b.name, 'ar'));
+    $('#pr-grid').innerHTML = sorted.map((t) => {
+      const pct = t.total ? Math.round((t.answered / t.total) * 100) : 0;
+      const st = { active: 'يختبر', ready: 'حمّل ولم يبدأ', ended: 'انتهى الوقت', submitted: 'سلّم ✓' }[t.status];
+      return `<div class="pr-card ${t.outNow ? 'out' : hot.has(t.id) ? 'hot' : ''} ${t.status} ${focus === t.id ? 'focus' : ''}" data-card="${t.id}">
+        <div class="pr-c-h"><b>${esc(t.name)}</b><span class="pr-st">${st}</span></div>
+        <div class="pr-c-m"><span>${t.device}</span>${t.status === 'active' ? `<span>الجزء ${t.part || 1} · السؤال ${t.q || 1}</span><span dir="ltr">⏱ ${left(t.deadline)}</span>` : ''}${t.anytime ? '<span>كلمة السر الخارقة</span>' : ''}</div>
+        <div class="pr-bar"><i style="width:${pct}%"></i></div><small class="pr-c-p">${t.answered}/${t.total} مجاب</small>
+        <div class="pr-chips">${t.outNow ? `<span class="c-red">● ${t.why === 'split' ? 'قسّم الشاشة الآن' : 'خارج صفحة الاختبار الآن'}</span>` : ''}${t.signal === 'lost' ? '<span class="c-grey">📶 لا إشارة من الجهاز</span>' : ''}${t.locked ? `<span class="c-amber">🔒 ${t.locked} مقفل</span>` : ''}${t.risk ? `<span class="${t.risk >= 3 ? 'c-red' : 'c-amber'}">مؤشر الشبهة ${t.risk}</span>` : ''}</div></div>`;
+    }).join('') || '<p class="muted">لا يوجد مختبرون بعد.</p>';
+    $('#pr-grid').querySelectorAll('[data-card]').forEach((el) => el.onclick = () => { focus = focus === el.dataset.card ? null : el.dataset.card; draw(); });
+    const feed = data.alerts.filter((a) => (!onlyHigh || a.level === 'high') && (!focus || a.attemptId === focus));
+    $('#pr-feed').innerHTML = feed.map((a) => `<li class="lv-${a.level} ${acked.has(a.id) ? 'seen' : ''}"><span class="pr-dot"></span><div><b>${esc(a.name)}</b> <small class="pr-lv">${LEVEL[a.level]}</small><br><span>${esc(a.text)}</span></div><time dir="ltr">${timeOf(a.t)}</time></li>`).join('') || `<li class="muted">${focus ? 'لا تنبيهات لهذا المختبر.' : 'لا تنبيهات حتى الآن.'}</li>`;
+  }
+  async function poll() {
+    try {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
+      const d = await api(token ? `exam/${eid}/proctor/${token}` : `admin/exams/${eid}/live`, { signal: ctl.signal }); clearTimeout(t);
+      if (!alive) return;
+      failed = 0; $('#pr-net').innerHTML = '';
+      // alerts that arrived since the page was opened sound once
+      const fresh = known ? d.alerts.filter((a) => !known.has(a.id) && a.level === 'high') : [];
+      d.alerts.forEach((a) => { if (known && !known.has(a.id)) a.fresh = true; });
+      if (data && known) data.alerts.forEach((a) => { if (a.fresh) { const x = d.alerts.find((y) => y.id === a.id); if (x) x.fresh = true; } });
+      known = known || new Set();
+      d.alerts.forEach((a) => known.add(a.id));
+      data = d; draw();
+      if (fresh.some((a) => !acked.has(a.id)) && sound) beep();
+    } catch (e) {
+      if (!alive) return;
+      failed++;
+      $('#pr-net').innerHTML = `<div class="warn">${e.status === 404 ? 'رابط المراقبة غير صالح أو أُلغي.' : 'انقطع الاتصال بالخادم — نعيد المحاولة تلقائياً…'}</div>`;
+      if (e.status === 404) { alive = false; return; }
+    }
+    $('#pr-clock').textContent = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Riyadh' });
+  }
+  const iv = setInterval(poll, 4000);
+  const tick = setInterval(() => { if ($('#pr-clock')) $('#pr-clock').textContent = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Riyadh' }); }, 1000);
+  examCleanup = () => { alive = false; clearInterval(iv); clearInterval(tick); try { wake?.release(); } catch {} };
+  await poll();
+}
+
 // Read-only review page for an outside reviewer (secret link, no sign-in).
 async function viewExamReview(eid, token) {
   document.body.classList.add('exam-on');
@@ -1479,6 +1575,10 @@ async function viewExamAdmin(eid) {
   const url = `${location.origin}/#exam/${e.id}`;
   app.innerHTML = `<p><a href="#admin/exams">← Exams</a></p><h1>${esc(e.title)}</h1>${lockBar()}
   <div class="card"><h3>Link for trainees</h3><div class="row"><code style="word-break:break-all">${esc(url)}</code><button id="cp" data-free>Copy</button></div></div>
+  <div class="card" data-lock><h3>Live proctor view</h3><p class="muted">Each trainee's progress and live alerts during the exam (left the exam page, split screen, another device, copy attempts…), with sound and vibration for serious ones. Open it on the proctor's phone with the secret link — no sign-in needed — and revoke it after the exam.</p>
+    <div class="row"><a class="btn pri" href="#proctor/${e.id}" data-free>Open live view</a>
+    ${e.proctorToken ? `<code style="word-break:break-all">${esc(`${location.origin}/#proctor/${e.id}/${e.proctorToken}`)}</code><button id="prc" data-free>Copy proctor link</button><button class="bad" id="prx">Revoke</button>`
+      : '<button id="prn">Create proctor link</button>'}</div></div>
   <div class="card" data-lock><h3>Reviewer link</h3><p class="muted">A secret, read-only link showing every question with its options and the correct answer, for an outside reviewer — no sign-in needed. Revoke it when the review is done.</p>
     ${e.reviewToken ? `<div class="row"><code style="word-break:break-all">${esc(`${location.origin}/#review/${e.id}/${e.reviewToken}`)}</code><button id="rvc" data-free>Copy</button><a class="btn" target="_blank" rel="noopener" href="#review/${e.id}/${e.reviewToken}">Open</a><button class="bad" id="rvx">Revoke</button></div>`
       : '<button class="pri" id="rvn">Create reviewer link</button>'}</div>
@@ -1519,6 +1619,9 @@ async function viewExamAdmin(eid) {
         <button class="${it.excluded ? '' : 'bad'}" data-ex="${it.id}" data-v="${!it.excluded}">${it.excluded ? 'Restore question' : 'Delete question from scoring'}</button></div></div>`; }).join('')}</div></div>`;
   $('#cp').onclick = () => navigator.clipboard?.writeText(url).then(() => { $('#cp').textContent = 'Copied ✓'; });
   if ($('#rvn')) $('#rvn').onclick = async () => { await api(`admin/exams/${eid}/review-link`, { body: {} }); route(); };
+  if ($('#prn')) $('#prn').onclick = async () => { await api(`admin/exams/${eid}/proctor-link`, { body: {} }); route(); };
+  if ($('#prx')) $('#prx').onclick = async () => { if (!confirm('Revoke the proctor link? It will stop working immediately.')) return; await api(`admin/exams/${eid}/proctor-link`, { body: { revoke: true } }); route(); };
+  if ($('#prc')) $('#prc').onclick = () => { navigator.clipboard?.writeText(`${location.origin}/#proctor/${e.id}/${e.proctorToken}`); $('#prc').textContent = 'Copied ✓'; };
   if ($('#rvx')) $('#rvx').onclick = async () => { if (!confirm('Revoke the reviewer link? It will stop working immediately.')) return; await api(`admin/exams/${eid}/review-link`, { body: { revoke: true } }); route(); };
   if ($('#rvc')) $('#rvc').onclick = () => navigator.clipboard?.writeText(`${location.origin}/#review/${e.id}/${e.reviewToken}`).then(() => { $('#rvc').textContent = 'Copied ✓'; });
   $('#es').onsubmit = async (ev) => {
@@ -1570,6 +1673,7 @@ async function route() {
     if (pub[h]) return await pub[h]();
     if (h.startsWith('exam/')) return await viewExam(h.slice(5));
     if (h.startsWith('review/')) { const [, rid, tok] = h.split('/'); return await viewExamReview(rid, tok || ''); }
+    if (h.startsWith('proctor/')) { const [, pid, tok] = h.split('/'); return await viewProctor(pid, tok || ''); }
     if (!ME) return viewLogin();
     if (ME.role === 'admin' && h.startsWith('admin/exams/')) return await viewExamAdmin(h.slice(12));
     if (ME.role === 'admin') return await ({ 'admin/reqs': viewReqsAdmin, 'admin/subs': viewSubs, 'admin/exams': viewExamsAdmin }[h] || viewUsers)();

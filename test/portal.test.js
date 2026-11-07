@@ -667,3 +667,53 @@ test('super password opens the exam at any time, outside the dates and window', 
     assert.equal((await call('exam/t1/names', { body: { password: 'SUPER-2030' } })).status, 403);
   } finally { srv.close(); }
 });
+
+test('live proctor view: pulse, alerts, secret link', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, { body, cookie, ua } = {}) => {
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', body: body && JSON.stringify(body), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json', ...(ua ? { 'User-Agent': ua } : {}), ...(cookie ? { cookie } : {}) } });
+    return { status: r.status, data: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  try {
+    const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
+    await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(Date.now() - 6e4).toISOString(), closeAt: new Date(Date.now() + 36e5).toISOString() } });
+    const LAPTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0', IPAD = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15';
+    const me = { name: 'Sara Ali Alqahtani', scfhs: '1000000098', password: 'AFHSR26' };
+    const st = (await call('exam/t1/start', { body: me, ua: LAPTOP })).data;
+    const { exam } = (await call('admin/exams/t1', { cookie: admin })).data;
+    // no link yet
+    assert.equal((await call('exam/t1/proctor/xyz')).status, 404);
+    const tok = (await call('admin/exams/t1/proctor-link', { cookie: admin, body: {} })).data.token;
+    const live = async () => (await call(`exam/t1/proctor/${tok}`)).data;
+    // pulse: outside the page right now
+    await call('exam/attempt/hb', { body: { token: st.token, answered: 7, total: 51, q: 8, part: 1, away: true, why: 'app', awaySince: Date.now() - 4000 } });
+    let d = await live();
+    assert.equal(d.trainees[0].outNow, true);
+    assert.equal(d.trainees[0].answered, 7);
+    assert.ok(d.alerts.some((a) => a.live && a.level === 'high' && a.name === me.name));
+    // back, with the exit recorded (12 s: question locked), a copy attempt and another device
+    await call('exam/attempt/hb', { body: { token: st.token, answered: 7, total: 51, q: 8, part: 1, away: false } });
+    await call('exam/attempt/event', { body: { token: st.token, type: 'away', itemId: exam.items[0].id, ms: 12000, why: 'app', at: Date.now() - 12000 } });
+    await call('exam/attempt/event', { body: { token: st.token, type: 'copy' } });
+    await call('exam/t1/start', { body: me, ua: IPAD });
+    d = await live();
+    const t = d.trainees[0];
+    assert.equal(t.outNow, false);
+    assert.equal(t.locked, 1);
+    const texts = d.alerts.map((a) => `${a.level}:${a.text}`);
+    assert.ok(texts.some((x) => x.startsWith('high:') && x.includes('وقُفل السؤال')), texts.join('\n'));
+    assert.ok(texts.some((x) => x.startsWith('mid:') && x.includes('نسخ')));
+    assert.ok(texts.some((x) => x.startsWith('high:') && x.includes('جهاز')));
+    assert.ok(t.risk >= 7);
+    // the pulse is not part of the activity log
+    const att = (await call('admin/exams/t1', { cookie: admin })).data.attempts[0];
+    assert.ok(!att.events.some((x) => x.type === 'hb'));
+    // admin view works without the link; revoking stops the link
+    assert.equal((await call('admin/exams/t1/live', { cookie: admin })).data.trainees.length, 1);
+    await call('admin/exams/t1/proctor-link', { cookie: admin, body: { revoke: true } });
+    assert.equal((await call(`exam/t1/proctor/${tok}`)).status, 404);
+  } finally { srv.close(); }
+});
