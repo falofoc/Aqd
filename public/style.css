@@ -279,8 +279,7 @@ button.big{padding:14px;font-size:1.1rem}
 .res-score{font-size:1.2rem}
 .res-done{width:84px;height:84px;border-radius:50%;display:grid;place-items:center;font-size:2.6rem;font-weight:700;color:#fff;background:var(--ac);margin:8px auto}
 .exam{min-height:100vh;background:var(--bg);user-select:none;-webkit-user-select:none;position:relative}
-.ex-wm{position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.05;background-image:repeating-linear-gradient(-30deg,transparent 0 120px,currentColor 120px 121px)}
-.ex-wm::before{content:var(--wm) "   " var(--wm) "   " var(--wm);position:absolute;top:40%;left:-10%;right:-10%;transform:rotate(-24deg);font-size:2.4rem;font-weight:700;white-space:nowrap;text-align:center}
+.ex-wm{position:fixed;inset:0;pointer-events:none;z-index:3;opacity:.07;background-repeat:repeat;background-size:420px 220px}
 .ex-bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;justify-content:space-between;background:#233b3d;color:#fff;padding:10px max(14px,calc((100% - 860px)/2))}
 .ex-t{display:grid;min-width:0}.ex-t b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ex-t small{opacity:.75}
 .ex-timer{font:700 1.5rem ui-monospace,monospace;background:#ffffff1a;border-radius:10px;padding:4px 12px}
