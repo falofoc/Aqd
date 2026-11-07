@@ -621,3 +621,49 @@ test('grading follows the chosen answer, not its position, when choices are shuf
     assert.equal(by('1000000013').percent, 0, 'wrong answers never count');
   } finally { srv.close(); }
 });
+
+test('super password opens the exam at any time, outside the dates and window', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const srv = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' });
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}/api/`;
+  const call = async (p, { body, cookie } = {}) => {
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', body: body && JSON.stringify(body), headers: { 'X-Requested-With': 'portal', 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) } });
+    return { status: r.status, data: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  try {
+    const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
+    // the exam opens in 3 days
+    const openAt = Date.now() + 3 * 864e5;
+    await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(openAt).toISOString(), closeAt: new Date(openAt + 36e5).toISOString() } });
+    const me = { name: 'Sara Ali Alqahtani', scfhs: '1000000098', prepare: true };
+    assert.equal((await call('exam/t1/start', { body: { ...me, password: 'AFHSR26' } })).status, 403, 'normal password: not open yet');
+    assert.equal((await call('exam/t1/start', { body: { ...me, password: 'SUPER-2030' } })).status, 403, 'no super password set yet');
+    assert.equal((await call('admin/exams/t1', { cookie: admin, body: { superPassword: 'AFHSR26' } })).status, 400, 'must differ from the exam password');
+    await call('admin/exams/t1', { cookie: admin, body: { superPassword: 'SUPER-2030' } });
+    assert.ok((await call('exam/t1/names', { body: { password: 'SUPER-2030' } })).data.names, 'names list opens with it');
+    const st = (await call('exam/t1/start', { body: { ...me, password: 'SUPER-2030' } })).data;
+    assert.ok(st.token);
+    assert.equal(st.openAt, null, 'no opening time for this attempt');
+    const b = (await call('exam/attempt/begin', { body: { token: st.token, at: Date.now() } })).data;
+    assert.ok(Math.abs(new Date(b.deadline).getTime() - (Date.now() + 60 * 6e4)) < 5000, 'full 60 minutes, not cut by the window');
+    const { exam } = (await call('admin/exams/t1', { cookie: admin })).data;
+    const q = exam.items[0];
+    assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: q.id, optionId: q.answer, seq: 1, at: Date.now() } })).status, 200);
+    await call('exam/attempt/next-part', { body: { token: st.token, from: 0 } });
+    assert.equal((await call('exam/attempt/submit', { body: { token: st.token } })).data.submitted, true);
+    const a = (await call('admin/exams/t1', { cookie: admin })).data.attempts[0];
+    assert.equal(a.anytime, true, 'marked for the admin');
+    assert.equal(a.preview, false, 'counts in the results');
+    assert.equal(a.score, 1);
+    // also after the exam has closed
+    await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(Date.now() - 2 * 36e5).toISOString(), closeAt: new Date(Date.now() - 36e5).toISOString() } });
+    const late = { name: 'Nora Saad Alharbi', scfhs: '1000000097', prepare: true };
+    assert.equal((await call('exam/t1/start', { body: { ...late, password: 'AFHSR26' } })).status, 403, 'closed for the normal password');
+    const st2 = (await call('exam/t1/start', { body: { ...late, password: 'SUPER-2030' } })).data;
+    assert.equal((await call('exam/attempt/begin', { body: { token: st2.token, at: Date.now() } })).status, 200, 'late sitting allowed');
+    // turning it off
+    await call('admin/exams/t1', { cookie: admin, body: { superPassword: '' } });
+    assert.equal((await call('exam/t1/names', { body: { password: 'SUPER-2030' } })).status, 403);
+  } finally { srv.close(); }
+});
