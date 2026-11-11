@@ -1481,8 +1481,11 @@ const awaySummary = (e, a) => {
 };
 const isKey = (it, oid) => (Array.isArray(it.answer) ? it.answer.includes(oid) : it.answer === oid);
 const keyLetters = (it) => it.options.map((o, i) => (isKey(it, o.id) ? 'ABCDEFGH'[i] : '')).join('');
+// answers also accepted after an item review (single-answer questions)
+const alsoOk = (it, oid) => !it.multi && (it.alsoAccept || []).includes(oid);
+const alsoLetters = (it) => it.options.map((o, i) => (alsoOk(it, o.id) ? 'ABCDEFGH'[i] : '')).join('');
 const ansLetters = (it, c) => it.options.map((o, i) => ((Array.isArray(c) ? c.includes(o.id) : c === o.id) ? 'ABCDEFGH'[i] : '')).join('');
-const ansRight = (it, c) => ansLetters(it, c) === keyLetters(it);
+const ansRight = (it, c) => ansLetters(it, c) === keyLetters(it) || (!Array.isArray(c) && alsoOk(it, c));
 
 // ---------- Live proctor view ----------
 // For the exam proctor (admin, or anyone with the secret proctor link): every trainee's state and the alerts worth
@@ -1630,7 +1633,7 @@ async function viewExamAdmin(eid) {
     <label>Silent extra minutes<input type="number" name="extraMin" min="0" max="120" value="${e.extraMin || 0}"><small class="muted">Added to every trainee's time, also during the exam (open exam pages pick it up within 15 s). Trainees still see the published duration.</small></label>
     <label>Exam password<input name="password" value="${esc(e.password)}"></label>
     <label>Super password (optional)<input name="superPassword" value="${esc(e.superPassword || '')}" autocomplete="off" placeholder="empty = off"><small class="muted">Opens the exam at any time, outside the dates and window (late or make-up sittings). The attempt counts and is marked. Use something hard to guess.</small></label>
-    <label>Pass mark % (optional)<input type="number" name="passMark" min="0" max="100" value="${e.passMark ?? ''}"></label>
+    <label>Pass mark % (optional)<input type="number" name="passMark" min="0" max="100" step="0.1" value="${e.passMark ?? ''}">${e.passMethod ? `<small class="muted">${esc(e.passMethod)}</small>` : ''}</label>
     <label class="eg-agree" style="grid-column:1/-1"><input type="checkbox" name="noPhones" style="width:auto" ${e.noPhones !== false ? 'checked' : ''}> Laptops and tablets only — phones are refused (admin preview still works on a phone)</label>
     <label>Lock a question after leaving the page for (seconds, 0 = off)<input type="number" name="lockAwaySec" min="0" max="600" value="${e.lockAwaySec ?? 10}"></label>
     <label class="eg-agree" style="grid-column:1/-1"><input type="checkbox" name="showScore" style="width:auto" ${e.showScore ? 'checked' : ''}> Show trainees their score — off: they only see “submitted”. Turn on later to release results; trainees then re-enter their details on the exam page to see their score.</label>
@@ -1650,9 +1653,10 @@ async function viewExamAdmin(eid) {
       <div class="row" style="justify-content:space-between"><b>${n + 1}. ${it.group ? `<small class="muted">[${it.group}]</small> ` : ''}${esc(it.text)}</b>${it.excluded ? '<span class="tag t-closed">Excluded</span>' : ''}</div>
       ${it.keyNote || it.keyUnverified ? `<div class="warn">${it.keyUnverified ? 'No answer was marked for this question in the source file — the key was set by reading the figures. Please confirm. ' : ''}${esc(it.keyNote || '')}</div>` : ''}
       ${it.multi ? '<p class="muted">Multiple answers — scored correct only when exactly the key options are chosen.</p>' : ''}
-      <ol type="A" class="ex-akey">${it.options.map((o) => `<li class="${isKey(it, o.id) ? 'k' : ''}">${esc(o.text)} <small class="muted">${x.counts ? `· ${x.counts[o.id] || 0}` : ''}</small></li>`).join('')}</ol>
+      <ol type="A" class="ex-akey">${it.options.map((o) => `<li class="${isKey(it, o.id) || alsoOk(it, o.id) ? 'k' : ''}">${esc(o.text)}${alsoOk(it, o.id) ? ' <small class="tag t-done">also accepted</small>' : ''} <small class="muted">${x.counts ? `· ${x.counts[o.id] || 0}` : ''}</small></li>`).join('')}</ol>
       <div class="row"><span class="muted">Difficulty <b>${x.p ?? '—'}</b> · Discrimination <b>${x.D ?? '—'}</b>${x.unanswered ? ` · ${x.unanswered} blank` : ''}</span>${(x.flags || []).map((f) => `<span class="tag t-late">${f}</span>`).join('')}</div>
-      <div class="row">${it.multi ? `<span class="muted">Key: <b>${keyLetters(it)}</b></span>` : `<label style="display:flex;gap:6px;align-items:center">Key <select data-key="${it.id}" style="width:auto">${it.options.map((o, i) => `<option value="${o.id}" ${o.id === it.answer ? 'selected' : ''}>${L[i]}</option>`).join('')}</select></label>`}
+      <div class="row">${it.multi ? `<span class="muted">Key: <b>${keyLetters(it)}</b></span>` : `<label style="display:flex;gap:6px;align-items:center">Key <select data-key="${it.id}" style="width:auto">${it.options.map((o, i) => `<option value="${o.id}" ${o.id === it.answer ? 'selected' : ''}>${L[i]}</option>`).join('')}</select></label>
+          <span class="muted" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">Also accept${it.options.map((o, i) => o.id === it.answer ? '' : `<label style="display:inline-flex;gap:3px;align-items:center"><input type="checkbox" data-also="${it.id}" value="${o.id}" ${alsoOk(it, o.id) ? 'checked' : ''} style="width:auto">${L[i]}</label>`).join('')}</span>`}
         <button class="${it.excluded ? '' : 'bad'}" data-ex="${it.id}" data-v="${!it.excluded}">${it.excluded ? 'Restore question' : 'Delete question from scoring'}</button></div></div>`; }).join('')}</div></div>`;
   $('#cp').onclick = () => navigator.clipboard?.writeText(url).then(() => { $('#cp').textContent = 'Copied ✓'; });
   if ($('#rvn')) $('#rvn').onclick = async () => { await api(`admin/exams/${eid}/review-link`, { body: {} }); route(); };
@@ -1668,6 +1672,12 @@ async function viewExamAdmin(eid) {
     catch (e2) { errBox(e2); }
   };
   app.querySelectorAll('[data-key]').forEach((s) => s.onchange = async () => { if (!confirm('Change the key and re-grade all results?')) return route(); await api(`admin/exams/${eid}/items/${s.dataset.key}`, { body: { answer: s.value } }); route(); });
+  app.querySelectorAll('[data-also]').forEach((c) => c.onchange = async () => {
+    const id = c.dataset.also;
+    if (!confirm('Change the accepted answers for this question and re-grade all results?')) return route();
+    const also = [...app.querySelectorAll(`[data-also="${id}"]:checked`)].map((x) => x.value);
+    await api(`admin/exams/${eid}/items/${id}`, { body: { alsoAccept: also } }); route();
+  });
   app.querySelectorAll('[data-ex]').forEach((b) => b.onclick = async () => { if (!confirm(b.dataset.v === 'true' ? 'Remove this question from scoring for everyone? Results are re-graded.' : 'Count this question again?')) return; await api(`admin/exams/${eid}/items/${b.dataset.ex}`, { body: { excluded: b.dataset.v === 'true' } }); route(); });
   app.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { if (!confirm('Delete this attempt? The trainee will be able to sit the exam again.')) return; await api(`admin/exams/${eid}/attempts/${b.dataset.del}`, { method: 'DELETE' }); route(); });
   app.querySelectorAll('[data-view]').forEach((b) => b.onclick = () => {
