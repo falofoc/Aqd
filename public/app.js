@@ -749,6 +749,7 @@ async function viewExam(eid) {
       const st = await api('exam/attempt/status', { body: { token: local.token }, signal: ctl.signal }); clearTimeout(t);
       // the exam times may have changed since the download
       if (!local.begun) { Object.assign(local, { openAt: st.openAt, closeAt: st.closeAt, durationMin: st.durationMin || local.durationMin, offset: (st.serverNow || Date.now()) - Date.now() }); runWrite(local); }
+      else if (st.deadline && !local.done) { local.deadline = new Date(st.deadline).getTime(); runWrite(local); }
     } catch (e) {
       if (e.status === 401 || e.status === 404) { try { localStorage.removeItem(RUN_KEY + eid); localStorage.removeItem('exam-scratch:' + local.token); } catch {} local = null; }
     }
@@ -1037,7 +1038,8 @@ function runExam(eid, run) {
     const all = parts.flatMap((p) => p.questions);
     const ctl = new AbortController(); setTimeout(() => ctl.abort(), 5000);
     api('exam/attempt/hb', { keepalive: true, signal: ctl.signal, body: { token: run.token, answered: all.filter((q) => ans[q.id]).length, total: all.length, q: cur + 1, part: run.partIndex + 1,
-      locked: (run.locked || []).length, away: !!run.away, why: run.away?.why, awaySince: run.away?.t } }).catch(() => {});
+      locked: (run.locked || []).length, away: !!run.away, why: run.away?.why, awaySince: run.away?.t } })
+      .then((r) => { const d = r && r.deadline && new Date(r.deadline).getTime(); if (d && !done && Math.abs(d - run.deadline) > 1000) { run.deadline = d; runSet(run); } }).catch(() => {});
   };
   const pulseT = setInterval(pulse, 15000);
   const draw = () => {
@@ -1625,6 +1627,7 @@ async function viewExamAdmin(eid) {
     <label>Opens (Riyadh time)<input type="datetime-local" name="openAt" value="${toLocalInput(e.openAt)}"></label>
     <label>Closes (Riyadh time)<input type="datetime-local" name="closeAt" value="${toLocalInput(e.closeAt)}"></label>
     <label>Duration (minutes)<input type="number" name="durationMin" min="5" value="${e.durationMin}"></label>
+    <label>Silent extra minutes<input type="number" name="extraMin" min="0" max="120" value="${e.extraMin || 0}"><small class="muted">Added to every trainee's time, also during the exam (open exam pages pick it up within 15 s). Trainees still see the published duration.</small></label>
     <label>Exam password<input name="password" value="${esc(e.password)}"></label>
     <label>Super password (optional)<input name="superPassword" value="${esc(e.superPassword || '')}" autocomplete="off" placeholder="empty = off"><small class="muted">Opens the exam at any time, outside the dates and window (late or make-up sittings). The attempt counts and is marked. Use something hard to guess.</small></label>
     <label>Pass mark % (optional)<input type="number" name="passMark" min="0" max="100" value="${e.passMark ?? ''}"></label>
@@ -1661,7 +1664,7 @@ async function viewExamAdmin(eid) {
   $('#es').onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target;
     if ((d.state === 'open' || d.attempts.length) && !confirm(`${d.state === 'open' ? 'The exam is open now' : `${d.attempts.length} trainee(s) have already sat it`}. Save these settings anyway?`)) return;
-    try { await api('admin/exams/' + eid, { body: { openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), durationMin: +f.durationMin.value, password: f.password.value, passMark: f.passMark.value, lockAwaySec: f.lockAwaySec.value, noPhones: f.noPhones.checked, superPassword: f.superPassword.value, showScore: f.showScore.checked, roster: f.roster.value } }); route(); }
+    try { await api('admin/exams/' + eid, { body: { openAt: fromLocalInput(f.openAt.value), closeAt: fromLocalInput(f.closeAt.value), durationMin: +f.durationMin.value, extraMin: +f.extraMin.value, password: f.password.value, passMark: f.passMark.value, lockAwaySec: f.lockAwaySec.value, noPhones: f.noPhones.checked, superPassword: f.superPassword.value, showScore: f.showScore.checked, roster: f.roster.value } }); route(); }
     catch (e2) { errBox(e2); }
   };
   app.querySelectorAll('[data-key]').forEach((s) => s.onchange = async () => { if (!confirm('Change the key and re-grade all results?')) return route(); await api(`admin/exams/${eid}/items/${s.dataset.key}`, { body: { answer: s.value } }); route(); });
