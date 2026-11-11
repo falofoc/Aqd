@@ -235,6 +235,8 @@ test('T1 exam: hidden answers, password, one attempt, grading, excluding a quest
     assert.equal(info.count, 51);
     assert.equal(info.durationMin, 60);
     const me = { name: 'Sara Ali Alqahtani', scfhs: '1000000098', password: 'AFHSR26' };
+    // the exam opens tomorrow (independent of today's date)
+    await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(Date.now() + 864e5).toISOString(), closeAt: new Date(Date.now() + 864e5 + 36e5).toISOString() } });
     assert.equal((await call('exam/t1/start', { body: me })).status, 403, 'not open yet');
     // open it now
     await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(Date.now() - 6e4).toISOString(), closeAt: new Date(Date.now() + 36e5).toISOString() } });
@@ -302,8 +304,10 @@ test('admin can preview a closed exam without it counting', async () => {
   };
   try {
     const me = { name: 'Admin Test User', scfhs: '1000000099', password: 'AFHSR26' };
-    assert.equal((await call('exam/t1/start', { body: me })).status, 403, 'not open for trainees');
     const admin = (await call('login', { body: { email: 'a@x.sa', password: 'adminpass' } })).cookie;
+    // the exam is closed (independent of today's date)
+    await call('admin/exams/t1', { cookie: admin, body: { openAt: new Date(Date.now() - 2 * 864e5).toISOString(), closeAt: new Date(Date.now() - 864e5).toISOString() } });
+    assert.equal((await call('exam/t1/start', { body: me })).status, 403, 'not open for trainees');
     const st = (await call('exam/t1/start', { body: me, cookie: admin })).data;
     assert.ok(st.token);
     assert.equal((await call('exam/attempt/submit', { body: { token: st.token } })).data.total, 51);

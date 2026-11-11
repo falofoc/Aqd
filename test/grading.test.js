@@ -46,6 +46,7 @@ test(`grading with shuffled choices: ${TRAINEES} trainees, exclusions, key chang
     const keyTextOf = (ex) => Object.fromEntries(ex.items.map((it) => [it.id, (Array.isArray(it.answer) ? it.answer : [it.answer]).map((id) => it.options.find((o) => o.id === id).text)]));
     let keyText = keyTextOf(exam);
 
+    let alt = {};
     const sat = []; // what each trainee saw and chose, all as text
     for (let n = 0; n < TRAINEES; n++) {
       const nid = String(3000000000 + n);
@@ -88,7 +89,7 @@ test(`grading with shuffled choices: ${TRAINEES} trainees, exclusions, key chang
     const partOf = (it) => it.part || exam.parts[0].id;
     const expect = (ex, kt, s) => {
       const live = ex.items.filter((it) => !it.excluded);
-      const right = (it) => !!s.chosen[it.id] && sameSet(s.chosen[it.id], kt[it.id]);
+      const right = (it) => !!s.chosen[it.id] && (sameSet(s.chosen[it.id], kt[it.id]) || (alt[it.id] || []).some((t) => sameSet(s.chosen[it.id], t)));
       const score = live.filter(right).length;
       const byPart = Object.fromEntries(ex.parts.map((pt) => [pt.id, live.filter((it) => partOf(it) === pt.id && right(it)).length]));
       return { score, total: live.length, percent: Math.round((score / live.length) * 1000) / 10, byPart };
@@ -96,6 +97,8 @@ test(`grading with shuffled choices: ${TRAINEES} trainees, exclusions, key chang
     const check = async (label) => {
       ({ exam } = (await call('admin/exams/t1', { cookie: admin })).data);
       const kt = keyTextOf(exam);
+      // answers also accepted after an item review count as right too
+      alt = Object.fromEntries(exam.items.map((it) => [it.id, (it.alsoAccept || []).map((id) => [it.options.find((o) => o.id === id).text])]));
       const res = (await call('admin/exams/t1', { cookie: admin })).data.attempts;
       let checked = 0;
       for (const s of sat) {
