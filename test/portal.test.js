@@ -111,6 +111,39 @@ test('older databases move CAP/CAT/seminars/clinical tools to the year-long wind
   assert.notEqual(after[Object.values(d.requirements).find((r) => r.type === 'course').id].window, 'OCT–JUL');
 });
 
+test('CAT: department instructions, 90-mark criteria and template, also for older databases', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
+  const start = async (check) => {
+    const s = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' }); await new Promise((r) => s.listen(0, r));
+    const base = `http://localhost:${s.address().port}`;
+    try { const { requirements } = await (await fetch(base + '/api/catalog')).json(); if (check) await check(base, requirements); } finally { s.close(); }
+  };
+  await start();
+  // Put back the earlier CAT text and form, as an older version seeded it.
+  const file = path.join(dir, 'db.json');
+  const d = JSON.parse(fs.readFileSync(file));
+  for (const r of Object.values(d.requirements).filter((x) => x.type === 'cat')) Object.assign(r, { instructions: ['old'], rubric: [{ name: 'old', max: 90 }], resources: [], fileTypes: ['pdf'] }, { formOff: undefined });
+  d.settings.migrations.done = d.settings.migrations.done.filter((x) => x !== 'cat-package-2026-11');
+  fs.writeFileSync(file, JSON.stringify(d));
+  await start(async (base, requirements) => {
+    const cats = requirements.filter((x) => x.type === 'cat');
+    assert.ok(cats.length >= 2);
+    for (const c of cats) {
+      assert.ok(!c.form, 'graded with the CAT criteria, not the older form');
+      assert.deepEqual(c.rubric.map((x) => x.max), [10, 20, 20, 15, 15, 10]);
+      assert.ok(c.instructions.some((x) => x.includes('three-part question')));
+      assert.deepEqual(c.fileTypes, ['docx', 'pdf']);
+      for (const f of ['CAT_Instructions_for_Trainees.pdf', 'CAT_Template.docx']) assert.ok(c.resources.some((x) => x.url === '/files/cat/' + f), f);
+    }
+    for (const [f, type] of [['CAT_Instructions_for_Trainees.pdf', 'application/pdf'], ['CAT_Template.docx', 'wordprocessingml']]) {
+      const r = await fetch(base + '/files/cat/' + f);
+      assert.equal(r.status, 200, f);
+      assert.ok(r.headers.get('content-type').includes(type), f);
+      assert.ok((await r.arrayBuffer()).byteLength > 10000, f);
+    }
+  });
+});
+
 test('older databases keep only the official list, with its exact titles', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
   const start = async () => { const s = createApp({ dataDir: dir, adminEmail: 'a@x.sa', adminPassword: 'adminpass' }); await new Promise((r) => s.listen(0, r)); await fetch(`http://localhost:${s.address().port}/api/catalog`); s.close(); };
