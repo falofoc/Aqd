@@ -9,7 +9,7 @@ const { FileStore } = require('./lib/file-store');
 
 const PORT = Number(process.env.PORT) || 3100;
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
 
 function readBody(req, limit) {
   return new Promise((resolve, reject) => {
