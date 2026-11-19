@@ -630,6 +630,8 @@ test('grading follows the chosen answer, not its position, when choices are shuf
     const { exam } = (await call('admin/exams/t1', { cookie: admin })).data;
     // the correct answers as TEXT, the way a trainee recognises them on screen
     const keyText = Object.fromEntries(exam.items.map((it) => [it.id, (Array.isArray(it.answer) ? it.answer : [it.answer]).map((id) => it.options.find((o) => o.id === id).text)]));
+    // answers also accepted after the item review are right too, so never pick them as "wrong"
+    const okText = Object.fromEntries(exam.items.map((it) => [it.id, [...keyText[it.id], ...(it.alsoAccept || []).map((id) => it.options.find((o) => o.id === id).text)]]));
     const sit = async (n, chooseRight) => {
       const st = (await call('exam/t1/start', { body: { name: 'Test Trainee Number', scfhs: '10000000' + n, password: 'AFHSR26' } })).data;
       const orders = {};
@@ -638,7 +640,7 @@ test('grading follows the chosen answer, not its position, when choices are shuf
         for (const q of part.questions) {
           orders[q.id] = q.options.map((o) => o.text).join('|');
           const right = q.options.filter((o) => keyText[q.id].includes(o.text)).map((o) => o.id);
-          const wrong = q.options.find((o) => !keyText[q.id].includes(o.text)).id;
+          const wrong = q.options.find((o) => !okText[q.id].includes(o.text)).id;
           const optionId = chooseRight ? (q.multi ? right : right[0]) : (q.multi ? [wrong] : wrong);
           assert.equal((await call('exam/attempt/answer', { body: { token: st.token, itemId: q.id, optionId, seq: ++seq } })).status, 200);
         }

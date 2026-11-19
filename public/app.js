@@ -35,7 +35,7 @@ function nav() {
   const inPortal = PORTAL_ROUTES.includes(h) || h.startsWith('admin/');
   const site = [['', 'Home'], ['about', 'About'], ['specialty', 'The Specialty'], ['program', 'Training Program'], ['competencies', 'Competencies'], ['research', 'Research'], ['assessment', 'Assessment & Exams'], ['resources', 'Resources']];
   const portal = [['portal', 'Overview'], ['catalog', 'Requirements'], ['guide', 'Guide'], ['exam', 'Exams'],
-    ...(!ME ? [] : ME.role === 'admin' ? [['admin/users', 'Trainees'], ['admin/reqs', 'Manage requirements'], ['admin/subs', 'Submissions'], ['admin/exams', 'Exam results']] : [['dash', 'My requirements']])];
+    ...(!ME ? [] : ME.role === 'admin' ? [['admin/users', 'Trainees'], ['admin/reqs', 'Manage requirements'], ['admin/subs', 'Submissions'], ['admin/exams', 'Exam results'], ['admin/att', 'Attendance']] : [['dash', 'My requirements']])];
   $('#nav').innerHTML = site.map(([k, t]) => `<a href="#${k}" class="${k === h ? 'on' : ''}">${t}</a>`).join('') +
     `<a href="#portal" class="portal-link ${inPortal ? 'on' : ''}">Trainee Portal</a>`;
   $('#subnav').hidden = !inPortal;
@@ -1702,6 +1702,180 @@ async function viewExamAdmin(eid) {
 
 // ---------- Routing ----------
 
+// ---------- Academic day attendance ----------
+// Admin records absences from the signed paper sheet; each trainee follows their record and replies through a private link.
+const ATT_ST = {
+  present: ['Present', 't-open'], excused: ['Absent · excused', 't-done'], unexcused: ['Absent · unexcused', 't-closed'],
+  awaiting: ['Absent · awaiting decision', 't-late'], reply: ['Absent · awaiting reply', 't-upcoming'],
+};
+const ATT_KIND = { excuse: 'Has an excuse', present: 'Says they were present', none: 'No excuse', notice: 'Told in advance' };
+const attTag = (x) => { const [t, c] = ATT_ST[x.status] || [x.status, '']; return `<span class="tag ${c}">${t}${x.status === 'unexcused' && x.auto ? ' (no reply)' : ''}${x.corrected ? ' (corrected)' : ''}</span>`; };
+const attDate = (d) => '<bdi>' + new Date(d + 'T12:00:00+03:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Riyadh' }) + '</bdi>';
+const attLink = (r) => location.origin + '/#att/' + r.token;
+const waNum = (p) => { let d = String(p || '').replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); if (d.startsWith('05')) d = '966' + d.slice(1); else if (/^5\d{8}$/.test(d)) d = '966' + d; return d; };
+const waUrl = (r, text) => `https://wa.me/${waNum(r.phone)}?text=${encodeURIComponent(text)}`;
+const mailUrl = (r, subject, text) => `mailto:${encodeURIComponent(r.email || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+const attMsgAbsent = (r, date, pol) => `${r.name}\nسُجّل غيابك عن اليوم الأكاديمي بتاريخ ${date}.\nاطّلع على سجل حضورك وأرسل ردك (عذر أو كنت حاضراً) خلال ${pol.replyDays} أيام عبر رابطك الخاص:\n${attLink(r)}\n\nYou were recorded absent from the academic day on ${date}. Reply within ${pol.replyDays} days using your private link above.\nPreventive Medicine Program`;
+const attMsgLink = (r) => `${r.name}\nهذا رابطك الخاص لمتابعة حضورك في اليوم الأكاديمي والرد على الغياب أو الإبلاغ المسبق عنه (لا تشاركه مع أحد):\n${attLink(r)}\n\nYour private link to follow your academic-day attendance (do not share it).\nPreventive Medicine Program`;
+const lastThursday = (today) => { const d = new Date(today + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() - 4 + 7) % 7)); return d.toISOString().slice(0, 10); };
+
+async function viewAttAdmin() {
+  const A = await api('admin/att');
+  const pol = A.policy, R = A.roster, byId = Object.fromEntries(R.map((r) => [r.id, r]));
+  const active = R.filter((r) => r.active !== false);
+  const absences = R.flatMap((r) => r.record.rows.filter((x) => x.status !== 'present' || x.corrected).map((x) => ({ ...x, r })));
+  const order = { awaiting: 0, reply: 1, unexcused: 2, excused: 3, present: 4 };
+  absences.sort((a, b) => order[a.status] - order[b.status] || (a.date < b.date ? 1 : -1));
+  const notices = R.flatMap((r) => r.record.notices.map((n) => ({ ...n, r })));
+  const nAwait = absences.filter((x) => x.status === 'awaiting').length, nOver = R.filter((r) => r.record.standing === 'over').length;
+  const lvTag = { ok: ['Within limit', 't-open'], notice: ['Within limit', 't-open'], limit: ['Limit reached', 't-late'], over: ['Over the limit', 't-closed'] };
+  const defDate = lastThursday(A.today);
+  app.innerHTML = `<h1>Attendance · academic day</h1>${lockBar()}
+  <div class="box"><div>Thursdays 9:00–12:00 · paper sheet signed in the hall, absences recorded here. Allowed: <b>${pol.allowed}</b> unexcused absence${pol.allowed === 1 ? '' : 's'} from ${attDate(pol.from)} to ${attDate(pol.to)}; lateness is not counted. Each trainee has a private link to see their record and reply within ${pol.replyDays} days; no reply = unexcused. You decide whether each absence is excused.</div></div>
+  <div class="tiles"><div><b>${active.length}</b><span>trainees</span></div><div><b>${A.days.filter((d) => !d.cancelled).length}</b><span>days recorded</span></div><div><b>${nAwait}</b><span>awaiting your decision</span></div><div><b>${nOver}</b><span>over the limit</span></div></div>
+
+  <div class="card" data-lock id="rec"><h3>Record a day</h3>
+   <div class="row"><label>Date<input type="date" id="rd" value="${defDate}" max="${A.today}"></label><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="rc" style="width:auto"> No academic day (cancelled / holiday)</label></div>
+   <p class="muted">Tick only those who were <b>absent</b> on the paper sheet; everyone else is recorded present.</p>
+   <div id="rl" class="att-grid">${active.map((r) => `<label><input type="checkbox" value="${r.id}" style="width:auto"> <span>${r.no ? r.no + '. ' : ''}${esc(r.name)} <small class="muted">${esc(r.level)}</small></span></label>`).join('') || '<p class="muted">Add the trainees first (below).</p>'}</div>
+   <div class="row"><label>Signed sheet (photo or PDF, optional)<input type="file" id="rs" accept=".pdf,.jpg,.jpeg,.png,.heic"></label></div>
+   <div id="e"></div><div class="row att-act"><button class="pri" id="rsave">Save day</button></div>
+   <div id="rnote"></div></div>
+
+  <div class="card"><h3>Absences <small class="muted">awaiting your decision first</small></h3>
+   <div class="tw"><table class="stack"><tr class="hd"><th>Trainee</th><th>Day</th><th>Status</th><th>Trainee's reply</th><th>Decision</th></tr>
+   ${absences.map((x) => `<tr data-rid="${x.r.id}" data-date="${x.date}"><td class="ttl">${esc(x.r.name)} <small class="muted">${esc(x.r.level)}</small></td><td data-label="Day">${attDate(x.date)}</td><td data-label="Status">${attTag(x)}${x.status === 'reply' ? `<br><small class="muted">reply by ${attDate(new Date(x.deadline).toISOString().slice(0, 10))}</small>` : ''}</td>
+    <td data-label="Reply">${x.response ? `<b>${esc(ATT_KIND[x.response.kind])}</b>${x.response.text ? `<br>${esc(x.response.text)}` : ''}${x.response.fileName ? `<br><a href="/api/admin/att/file/${encodeURIComponent(x.date + ':' + x.r.id)}">📎 ${esc(x.response.fileName)}</a>` : ''}` : '<span class="muted">—</span>'}</td>
+    <td data-label="Decision" data-lock><div class="row"><button data-d="excused">Excused</button><button data-d="unexcused" class="bad">Unexcused</button><button data-d="present">Was present</button>${x.status === 'excused' || (x.status === 'unexcused' && !x.auto) || x.corrected ? '<button data-d="">Undo</button>' : ''}</div><input class="dn" placeholder="Note to the trainee (optional)" value="${esc(x.note || '')}"></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No absences recorded</td></tr>'}
+   </table></div>
+   ${notices.length ? `<h3>Told in advance</h3><ul>${notices.map((n) => `<li>${attDate(n.date)} · <b>${esc(n.r.name)}</b>: ${esc(n.text)}${n.fileName ? ` <a href="/api/admin/att/file/${encodeURIComponent(n.date + ':' + n.r.id)}">📎 ${esc(n.fileName)}</a>` : ''}</li>`).join('')}</ul><p class="muted">When you record that day, mark them absent; their notice becomes their reply and you decide as usual.</p>` : ''}</div>
+
+  <div class="card"><h3>Trainees</h3>
+   <div class="tw"><table class="stack"><tr class="hd"><th>No.</th><th>Name</th><th>Level</th><th>Attended</th><th>Unexcused</th><th>Status</th><th>Private link</th><th></th></tr>
+   ${R.map((r) => `<tr data-id="${r.id}" class="${r.active === false ? 'muted' : ''}"><td data-label="No.">${r.no || ''}</td><td class="ttl">${esc(r.name)}${r.active === false ? ' <small>(inactive)</small>' : ''}</td><td data-label="Level">${esc(r.level || '—')}</td>
+    <td data-label="Attended">${r.record.attended} / ${r.record.held}</td><td data-label="Unexcused"><b>${r.record.counted}</b> / ${pol.allowed}</td><td data-label="Status"><span class="tag ${lvTag[r.record.standing][1]}">${lvTag[r.record.standing][0]}</span></td>
+    <td data-label="Link" class="row"><button data-copy>Copy</button><a class="btn" target="_blank" rel="noopener" href="${waUrl(r, attMsgLink(r))}">WhatsApp</a>${r.email ? `<a class="btn" href="${mailUrl(r, 'Academic day attendance – your private link', attMsgLink(r))}">Email</a>` : ''}</td>
+    <td data-lock><button data-edit>Edit</button></td></tr>`).join('') || '<tr><td colspan="8" class="muted">No trainees yet</td></tr>'}
+   </table></div></div>
+
+  <div class="card" data-lock><h3>Recorded days</h3>
+   <div class="tw"><table class="stack"><tr class="hd"><th>Day</th><th>Present</th><th>Absent</th><th>Sheet</th><th></th></tr>
+   ${A.days.map((d) => `<tr data-day="${d.id}"><td class="ttl">${attDate(d.id)}</td>${d.cancelled ? '<td colspan="2"><span class="tag t-upcoming">No academic day</span></td>' : `<td data-label="Present">${d.present.length}</td><td data-label="Absent">${d.absent.map((x) => esc(byId[x]?.name || '?')).join(', ') || '—'}</td>`}
+    <td data-label="Sheet">${d.sheet ? `<a href="/api/admin/att/day/${d.id}/sheet">📎 ${esc(d.sheetName)}</a>` : '—'}</td><td class="row"><button data-load>Edit</button><button data-del class="bad">Delete</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No days recorded yet</td></tr>'}
+   </table></div></div>
+
+  <div class="card" data-lock><h3>Add trainees</h3><p class="muted">One per line: <code>number | name | level | mobile | email</code> (mobile and email optional; used for WhatsApp and email). A line with an existing number updates that trainee.</p>
+   <textarea id="ri" rows="5" placeholder="1 | Sulaiman Ahmad Asiri | R1 | 05xxxxxxxx | name@example.com"></textarea><div id="rie"></div><div class="row att-act"><button class="pri" id="risave">Add / update</button></div></div>
+
+  <div class="card" data-lock><h3>Policy</h3><div class="row">
+   <label>Unexcused absences allowed<input type="number" id="pa" min="0" max="40" value="${pol.allowed}"></label>
+   <label>From<input type="date" id="pf" value="${pol.from}"></label><label>To (last academic day)<input type="date" id="pt" value="${pol.to}"></label>
+   <label>Days to reply<input type="number" id="pr" min="1" max="60" value="${pol.replyDays}"></label></div><div id="pe"></div><div class="row att-act"><button id="psave">Save policy</button></div></div>`;
+
+  // Record a day
+  const loadDay = (date) => {
+    const d = A.days.find((x) => x.id === date);
+    $('#rd').value = date; $('#rc').checked = !!d?.cancelled;
+    $('#rl').querySelectorAll('input').forEach((i) => { i.checked = !!d?.absent.includes(i.value); });
+  };
+  $('#rd').onchange = () => loadDay($('#rd').value);
+  loadDay(defDate);
+  $('#rsave').onclick = async () => {
+    const date = $('#rd').value, absent = [...$('#rl').querySelectorAll('input:checked')].map((i) => i.value);
+    const btn = $('#rsave'); btn.disabled = true;
+    try {
+      await api('admin/att/day', { body: { date, absent, cancelled: $('#rc').checked } });
+      const f = $('#rs').files[0];
+      if (f) await api(`admin/att/day/${date}/sheet`, { method: 'POST', body: f, headers: { 'X-File-Name': encodeURIComponent(f.name) } });
+      const abs = absent.map((x) => byId[x]);
+      if ($('#rc').checked || !abs.length) return route();
+      // Tell each absent trainee: WhatsApp / email with their private link.
+      $('#rnote').innerHTML = `<div class="box"><b>Saved.</b> Send each absent trainee their message:<ul>${abs.map((r) => `<li>${esc(r.name)} · <a class="btn" target="_blank" rel="noopener" href="${waUrl(r, attMsgAbsent(r, date, pol))}">WhatsApp</a>${r.email ? ` <a class="btn" href="${mailUrl(r, 'Academic day absence – ' + date, attMsgAbsent(r, date, pol))}">Email</a>` : ''}</li>`).join('')}</ul><button id="rdone">Done</button></div>`;
+      $('#rdone').onclick = route;
+    } catch (e) { errBox(e); } finally { btn.disabled = false; }
+  };
+  // Decisions
+  app.querySelectorAll('tr[data-rid]').forEach((tr) => tr.querySelectorAll('[data-d]').forEach((b) => b.onclick = async () => {
+    try { await api('admin/att/decide', { body: { date: tr.dataset.date, rid: tr.dataset.rid, decision: b.dataset.d || null, note: $('.dn', tr).value } }); route(); } catch (e) { alert(e.message); }
+  }));
+  // Trainees
+  app.querySelectorAll('tr[data-id]').forEach((tr) => {
+    const r = byId[tr.dataset.id];
+    $('[data-copy]', tr).onclick = async (ev) => { try { await navigator.clipboard.writeText(attLink(r)); ev.target.textContent = 'Copied ✓'; } catch { prompt('Private link', attLink(r)); } };
+    $('[data-edit]', tr).onclick = () => attEdit(r);
+  });
+  // Days
+  app.querySelectorAll('tr[data-day]').forEach((tr) => {
+    $('[data-load]', tr).onclick = () => { loadDay(tr.dataset.day); $('#rec').scrollIntoView({ behavior: 'smooth' }); };
+    $('[data-del]', tr).onclick = async () => { if (!confirm('Delete this day and its record?')) return; try { await api('admin/att/day/' + tr.dataset.day, { method: 'DELETE' }); route(); } catch (e) { alert(e.message); } };
+  });
+  // Import
+  $('#risave').onclick = async () => {
+    const list = $('#ri').value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [no, name, level, phone, email] = l.split('|').map((x) => x.trim()); return { no, name, level: (level || '').toUpperCase(), phone, email }; });
+    if (!list.length) return;
+    try { await api('admin/att/roster', { body: { list } }); route(); } catch (e) { $('#rie').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  };
+  $('#psave').onclick = async () => {
+    try { await api('admin/att/settings', { body: { allowed: $('#pa').value, from: $('#pf').value, to: $('#pt').value, replyDays: $('#pr').value } }); route(); } catch (e) { $('#pe').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  };
+  applyLock();
+}
+
+function attEdit(r) {
+  $('#dlgBody').innerHTML = `<h3>${esc(r.name)}</h3><form id="af" class="grid2">
+   <label>Number<input name="no" type="number" min="1" value="${r.no || ''}"></label><label>Level<select name="level"><option value="">—</option>${LEVEL_OPTS(r.level)}</select></label>
+   <label style="grid-column:1/-1">Name<input name="name" required value="${esc(r.name)}"></label>
+   <label>Mobile (for WhatsApp)<input name="phone" inputmode="tel" value="${esc(r.phone || '')}"></label><label>Email<input name="email" type="email" value="${esc(r.email || '')}"></label>
+   <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="active" style="width:auto" ${r.active !== false ? 'checked' : ''}> Active (listed on new days)</label></form>
+   <div id="e"></div><div class="bar"><button id="tok">New private link</button><button id="x">Cancel</button><button class="pri" id="ok">Save</button></div>`;
+  $('#x').onclick = () => $('#dlg').close();
+  $('#tok').onclick = async () => { if (!confirm('The current link will stop working. Create a new one?')) return; try { await api(`admin/att/roster/${r.id}/token`, { method: 'POST' }); $('#dlg').close(); route(); } catch (e) { errBox(e); } };
+  $('#ok').onclick = async () => {
+    const f = $('#af'), b = Object.fromEntries(new FormData(f)); b.active = f.active.checked; b.id = r.id;
+    try { await api('admin/att/roster', { body: b }); $('#dlg').close(); route(); } catch (e) { errBox(e); }
+  };
+  $('#dlg').showModal();
+}
+
+// The trainee's own page, opened from the private link: #att/<token>
+async function viewAtt(tok) {
+  const D = await api('att/' + tok);
+  const pol = D.policy;
+  const msg = { ok: ['You have no unexcused absences.', 't-open'], notice: [`You have ${D.remaining} unexcused absence${D.remaining === 1 ? '' : 's'} left before the limit.`, 't-late'], limit: ['You have reached the limit. Any further unexcused absence will be referred to the program committee.', 't-closed'], over: ['You are over the limit of unexcused absences. The program will contact you.', 't-closed'] }[D.standing];
+  const open = D.rows.filter((x) => x.status === 'reply' || x.status === 'awaiting');
+  const form = (x) => `<form class="card att-reply" data-date="${x.date}"><h3>${attDate(x.date)} · ${attTag(x)}</h3>
+    ${x.response ? `<p class="muted">Your reply: <b>${esc(ATT_KIND[x.response.kind])}</b>${x.response.text ? ' — ' + esc(x.response.text) : ''}${x.response.fileName ? ` · <a href="/api/att/${tok}/file/${x.date}">📎 ${esc(x.response.fileName)}</a>` : ''}. You can change it until the program director decides.</p>` : `<p class="muted">Please reply by ${attDate(new Date(x.deadline).toISOString().slice(0, 10))}. Without a reply the absence counts as unexcused.</p>`}
+    <div class="att-kinds">${[['excuse', 'I have an excuse'], ['present', 'I was present'], ['none', 'No excuse']].map(([k, t]) => `<label><input type="radio" name="kind" value="${k}" style="width:auto" ${x.response?.kind === k ? 'checked' : ''} required> ${t}</label>`).join('')}</div>
+    <label>Explanation<textarea name="text" rows="3" maxlength="1500" placeholder="The reason, or how you attended (e.g. signed the sheet late)">${esc(x.response?.text || '')}</textarea></label>
+    <label>Supporting document, optional (medical report…; PDF or photo, up to 10 MB)<input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.heic"></label>
+    <div class="e"></div><div class="row att-act"><button class="pri">Send reply</button></div></form>`;
+  app.innerHTML = `<h1>Academic day attendance</h1>
+  <p><b>${esc(D.name)}</b>${D.level ? ' · ' + esc(D.level) : ''}</p>
+  <div class="box"><div><span class="tag ${msg[1]}">${D.counted} of ${D.allowed} unexcused absences</span> ${esc(msg[0])}</div></div>
+  <div class="tiles"><div><b>${D.attended}</b><span>days attended</span></div><div><b>${D.held}</b><span>days recorded</span></div><div><b>${D.rows.filter((x) => x.status === 'excused').length}</b><span>excused absences</span></div><div><b>${D.counted}</b><span>unexcused absences</span></div></div>
+  ${open.length ? `<h2>Waiting for your reply or the decision</h2>${open.map(form).join('')}` : ''}
+  <div class="card"><h3>Your record</h3><div class="tw"><table class="stack"><tr class="hd"><th>Day</th><th>Status</th><th>Note from the program</th></tr>
+   ${D.rows.slice().reverse().map((x) => `<tr><td class="ttl">${attDate(x.date)}</td><td data-label="Status">${attTag(x)}</td><td data-label="Note">${esc(x.note || '')}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">Nothing recorded yet</td></tr>'}</table></div></div>
+  <form class="card" id="nf"><h3>Tell the program in advance</h3><p class="muted">If you know you cannot attend a coming academic day, tell the program here before the day, as the curriculum requires. The program director decides whether it is excused.</p>
+   <div class="row"><label>Academic day (Thursday)<input type="date" name="date" min="${D.today}" max="${pol.to}" required></label></div>
+   <label>Reason<textarea name="text" rows="2" maxlength="1500" required></textarea></label>
+   <label>Supporting document, optional<input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.heic"></label><div class="e"></div><div class="row att-act"><button class="pri">Send</button></div>
+   ${D.notices.length ? `<p class="muted">Already sent: ${D.notices.map((n) => attDate(n.date)).join(', ')}</p>` : ''}</form>
+  <p class="muted">Academic day: Thursdays 9:00–12:00. Lateness is not counted. Allowed: ${pol.allowed} unexcused absence${pol.allowed === 1 ? '' : 's'} (${attDate(pol.from)} – ${attDate(pol.to)}); more is referred to the program committee. This page is private to you; do not share its link.</p>`;
+  const send = async (f, kind) => {
+    const e = $('.e', f), btn = $('button.pri', f), date = f.dataset.date || f.date.value, file = f.file.files[0];
+    if (file && file.size > 10 * 1048576) { e.innerHTML = '<div class="err">The file is larger than 10 MB</div>'; return; }
+    btn.disabled = true; e.innerHTML = '';
+    try {
+      await api(`att/${tok}/reply`, { body: { date, kind, text: f.text.value } });
+      if (file && kind !== 'none') await api(`att/${tok}/file`, { method: 'POST', body: file, headers: { 'X-File-Name': encodeURIComponent(file.name), 'X-Date': date } });
+      route();
+    } catch (er) { e.innerHTML = `<div class="err">${esc(er.message)}</div>`; btn.disabled = false; }
+  };
+  app.querySelectorAll('form.att-reply').forEach((f) => f.onsubmit = (ev) => { ev.preventDefault(); send(f, f.kind.value); });
+  $('#nf').onsubmit = (ev) => { ev.preventDefault(); send(ev.target, 'notice'); };
+}
+
 async function route() {
   const h = (location.hash || '#').slice(1);
   if (ME === null) { try { const r = await api('me'); ME = r.user; LEVELS = r.levels; } catch { ME = false; } }
@@ -1720,10 +1894,11 @@ async function route() {
     if (pub[h]) return await pub[h]();
     if (h.startsWith('exam/')) return await viewExam(h.slice(5));
     if (h.startsWith('review/')) { const [, rid, tok] = h.split('/'); return await viewExamReview(rid, tok || ''); }
+    if (h.startsWith('att/')) return await viewAtt(h.slice(4));
     if (h.startsWith('proctor/')) { const [, pid, tok] = h.split('/'); return await viewProctor(pid, tok || ''); }
     if (!ME) return viewLogin();
     if (ME.role === 'admin' && h.startsWith('admin/exams/')) return await viewExamAdmin(h.slice(12));
-    if (ME.role === 'admin') return await ({ 'admin/reqs': viewReqsAdmin, 'admin/subs': viewSubs, 'admin/exams': viewExamsAdmin }[h] || viewUsers)();
+    if (ME.role === 'admin') return await ({ 'admin/reqs': viewReqsAdmin, 'admin/subs': viewSubs, 'admin/exams': viewExamsAdmin, 'admin/att': viewAttAdmin }[h] || viewUsers)();
     return await viewDash();
   } catch (e) { app.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
