@@ -52,7 +52,6 @@ test('attendance: roster, absences, private link replies, director decisions, li
     assert.equal((await call(`att/${t1.token}/reply`, { body: { date: recent, kind: 'excuse', text: 'Medical appointment' } })).status, 200);
     me = (await call('att/' + t1.token)).data;
     assert.deepEqual([me.rows[1].status, me.rows[1].missingDoc], ['reply', true], 'an excuse without an official document is not accepted yet');
-    assert.equal((await call('admin/att/decide', { cookie: admin, body: { date: recent, rid: t1.id, decision: 'excused' } })).status, 400, 'no excused decision without a document');
     assert.equal((await call(`att/${t1.token}/file`, { method: 'POST', body: Buffer.from('%PDF-1'), headers: { 'X-File-Name': 'report.pdf', 'X-Date': recent } })).status, 200);
     assert.equal((await call(`att/${t1.token}/file`, { method: 'POST', body: Buffer.from('x'), headers: { 'X-File-Name': 'x.exe', 'X-Date': recent } })).status, 415);
     assert.equal((await call(`att/${t2.token}/reply`, { body: { date: recent, kind: 'excuse', text: 'x' } })).status, 404, 'no absence for them that day');
@@ -70,6 +69,8 @@ test('attendance: roster, absences, private link replies, director decisions, li
     assert.equal((await call(`att/${t1.token}/reply`, { body: { date: recent, kind: 'none' } })).status, 409, 'decided: no more changes');
     // "No excuse" counts at once; with one allowed, two unexcused is over the limit.
     await call(`att/${t3.token}/reply`, { body: { date: recent, kind: 'none' } });
+    assert.equal((await call('admin/att/decide', { cookie: admin, body: { date: old, rid: t2.id, decision: 'excused' } })).status, 200, 'the director may excuse without a document');
+    assert.equal((await call('att/' + t2.token)).data.rows[0].status, 'excused');
     await call('admin/att/decide', { cookie: admin, body: { date: old, rid: t2.id, decision: 'unexcused' } });
     A = (await call('admin/att', { cookie: admin })).data;
     const rec = Object.fromEntries(A.roster.map((r) => [r.no, r.record]));
