@@ -50,6 +50,9 @@ test('attendance: roster, absences, private link replies, director decisions, li
     assert.equal((await call(`att/${t1.token}/reply`, { body: { date: old, kind: 'excuse', text: 'ill' } })).status, 409);
     assert.equal((await call(`att/${t1.token}/reply`, { body: { date: recent, kind: 'excuse', text: '' } })).status, 400, 'explanation needed');
     assert.equal((await call(`att/${t1.token}/reply`, { body: { date: recent, kind: 'excuse', text: 'Medical appointment' } })).status, 200);
+    me = (await call('att/' + t1.token)).data;
+    assert.deepEqual([me.rows[1].status, me.rows[1].missingDoc], ['reply', true], 'an excuse without an official document is not accepted yet');
+    assert.equal((await call('admin/att/decide', { cookie: admin, body: { date: recent, rid: t1.id, decision: 'excused' } })).status, 400, 'no excused decision without a document');
     assert.equal((await call(`att/${t1.token}/file`, { method: 'POST', body: Buffer.from('%PDF-1'), headers: { 'X-File-Name': 'report.pdf', 'X-Date': recent } })).status, 200);
     assert.equal((await call(`att/${t1.token}/file`, { method: 'POST', body: Buffer.from('x'), headers: { 'X-File-Name': 'x.exe', 'X-Date': recent } })).status, 415);
     assert.equal((await call(`att/${t2.token}/reply`, { body: { date: recent, kind: 'excuse', text: 'x' } })).status, 404, 'no absence for them that day');

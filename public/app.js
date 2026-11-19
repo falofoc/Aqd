@@ -1709,7 +1709,8 @@ const ATT_ST = {
   awaiting: ['Absent · awaiting decision', 't-late'], reply: ['Absent · awaiting reply', 't-upcoming'],
 };
 const ATT_KIND = { excuse: 'Has an excuse', present: 'Says they were present', none: 'No excuse', notice: 'Told in advance' };
-const attTag = (x) => { const [t, c] = ATT_ST[x.status] || [x.status, '']; return `<span class="tag ${c}">${t}${x.status === 'unexcused' && x.auto ? ' (no reply)' : ''}${x.corrected ? ' (corrected)' : ''}</span>`; };
+const attTag = (x) => { const [t, c] = ATT_ST[x.status] || [x.status, '']; return `<span class="tag ${c}">${t}${x.missingDoc ? ' · no official document' : x.status === 'unexcused' && x.auto ? ' (no reply)' : ''}${x.corrected ? ' (corrected)' : ''}</span>`; };
+const ATT_DOCS = 'Official documents only: a sick leave or medical report from a health facility (e.g. through Sehhaty), an official assignment or task letter, or another official letter. An excuse without one is not accepted.';
 const attDate = (d) => '<bdi>' + new Date(d + 'T12:00:00+03:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Riyadh' }) + '</bdi>';
 const attLink = (r) => location.origin + '/#att/' + r.token;
 const waNum = (p) => { let d = String(p || '').replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); if (d.startsWith('05')) d = '966' + d.slice(1); else if (/^5\d{8}$/.test(d)) d = '966' + d; return d; };
@@ -1731,7 +1732,7 @@ async function viewAttAdmin() {
   const lvTag = { ok: ['Within limit', 't-open'], notice: ['Within limit', 't-open'], limit: ['Limit reached', 't-late'], over: ['Over the limit', 't-closed'] };
   const defDate = lastThursday(A.today);
   app.innerHTML = `<h1>Attendance · academic day</h1>${lockBar()}
-  <div class="box"><div>Thursdays 9:00–12:00 · paper sheet signed in the hall, absences recorded here. Allowed: <b>${pol.allowed}</b> unexcused absence${pol.allowed === 1 ? '' : 's'} from ${attDate(pol.from)} to ${attDate(pol.to)}; lateness is not counted. Each trainee has a private link to see their record and reply within ${pol.replyDays} days; no reply = unexcused. You decide whether each absence is excused.</div></div>
+  <div class="box"><div>Thursdays 9:00–12:00 · paper sheet signed in the hall, absences recorded here. Allowed: <b>${pol.allowed}</b> unexcused absence${pol.allowed === 1 ? '' : 's'} from ${attDate(pol.from)} to ${attDate(pol.to)}; lateness is not counted. Each trainee has a private link to see their record and reply within ${pol.replyDays} days; no reply = unexcused. You decide whether each absence is excused; an excuse needs an official document (sick leave, medical report, official assignment letter).</div></div>
   <div class="tiles"><div><b>${active.length}</b><span>trainees</span></div><div><b>${A.days.filter((d) => !d.cancelled).length}</b><span>days recorded</span></div><div><b>${nAwait}</b><span>awaiting your decision</span></div><div><b>${nOver}</b><span>over the limit</span></div></div>
 
   <div class="card" data-lock id="rec"><h3>Record a day</h3>
@@ -1746,9 +1747,9 @@ async function viewAttAdmin() {
    <div class="tw"><table class="stack"><tr class="hd"><th>Trainee</th><th>Day</th><th>Status</th><th>Trainee's reply</th><th>Decision</th></tr>
    ${absences.map((x) => `<tr data-rid="${x.r.id}" data-date="${x.date}"><td class="ttl">${esc(x.r.name)} <small class="muted">${esc(x.r.level)}</small></td><td data-label="Day">${attDate(x.date)}</td><td data-label="Status">${attTag(x)}${x.status === 'reply' ? `<br><small class="muted">reply by ${attDate(new Date(x.deadline).toISOString().slice(0, 10))}</small>` : ''}</td>
     <td data-label="Reply">${x.response ? `<b>${esc(ATT_KIND[x.response.kind])}</b>${x.response.text ? `<br>${esc(x.response.text)}` : ''}${x.response.fileName ? `<br><a href="/api/admin/att/file/${encodeURIComponent(x.date + ':' + x.r.id)}">📎 ${esc(x.response.fileName)}</a>` : ''}` : '<span class="muted">—</span>'}</td>
-    <td data-label="Decision" data-lock><div class="row"><button data-d="excused">Excused</button><button data-d="unexcused" class="bad">Unexcused</button><button data-d="present">Was present</button>${x.status === 'excused' || (x.status === 'unexcused' && !x.auto) || x.corrected ? '<button data-d="">Undo</button>' : ''}</div><input class="dn" placeholder="Note to the trainee (optional)" value="${esc(x.note || '')}"></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No absences recorded</td></tr>'}
+    <td data-label="Decision" data-lock><div class="row"><button data-d="excused" ${x.response?.fileName ? '' : 'disabled title="No official document attached"'}>Excused</button><button data-d="unexcused" class="bad">Unexcused</button><button data-d="present">Was present</button>${x.status === 'excused' || (x.status === 'unexcused' && !x.auto) || x.corrected ? '<button data-d="">Undo</button>' : ''}</div><input class="dn" placeholder="Note to the trainee (optional)" value="${esc(x.note || '')}"></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No absences recorded</td></tr>'}
    </table></div>
-   ${notices.length ? `<h3>Told in advance</h3><ul>${notices.map((n) => `<li>${attDate(n.date)} · <b>${esc(n.r.name)}</b>: ${esc(n.text)}${n.fileName ? ` <a href="/api/admin/att/file/${encodeURIComponent(n.date + ':' + n.r.id)}">📎 ${esc(n.fileName)}</a>` : ''}</li>`).join('')}</ul><p class="muted">When you record that day, mark them absent; their notice becomes their reply and you decide as usual.</p>` : ''}</div>
+   ${notices.length ? `<h3>Told in advance</h3><ul>${notices.map((n) => `<li>${attDate(n.date)} · <b>${esc(n.r.name)}</b>: ${esc(n.text)}${n.fileName ? ` <a href="/api/admin/att/file/${encodeURIComponent(n.date + ':' + n.r.id)}">📎 ${esc(n.fileName)}</a>` : ' <span class="tag t-late">no official document</span>'}</li>`).join('')}</ul><p class="muted">When you record that day, mark them absent; their notice becomes their reply and you decide as usual.</p>` : ''}</div>
 
   <div class="card"><h3>Trainees</h3>
    <div class="tw"><table class="stack"><tr class="hd"><th>No.</th><th>Name</th><th>Level</th><th>Attended</th><th>Unexcused</th><th>Status</th><th>Private link</th><th></th></tr>
@@ -1844,10 +1845,11 @@ async function viewAtt(tok) {
   const msg = { ok: ['You have no unexcused absences.', 't-open'], notice: [`You have ${D.remaining} unexcused absence${D.remaining === 1 ? '' : 's'} left before the limit.`, 't-late'], limit: ['You have reached the limit. Any further unexcused absence will be referred to the program committee.', 't-closed'], over: ['You are over the limit of unexcused absences. The program will contact you.', 't-closed'] }[D.standing];
   const open = D.rows.filter((x) => x.status === 'reply' || x.status === 'awaiting');
   const form = (x) => `<form class="card att-reply" data-date="${x.date}"><h3>${attDate(x.date)} · ${attTag(x)}</h3>
-    ${x.response ? `<p class="muted">Your reply: <b>${esc(ATT_KIND[x.response.kind])}</b>${x.response.text ? ' — ' + esc(x.response.text) : ''}${x.response.fileName ? ` · <a href="/api/att/${tok}/file/${x.date}">📎 ${esc(x.response.fileName)}</a>` : ''}. You can change it until the program director decides.</p>` : `<p class="muted">Please reply by ${attDate(new Date(x.deadline).toISOString().slice(0, 10))}. Without a reply the absence counts as unexcused.</p>`}
+    ${x.missingDoc ? '<div class="err">Your excuse has no official document, so it is not accepted yet. Attach one before the deadline.</div>' : ''}${x.response ? `<p class="muted">Your reply: <b>${esc(ATT_KIND[x.response.kind])}</b>${x.response.text ? ' — ' + esc(x.response.text) : ''}${x.response.fileName ? ` · <a href="/api/att/${tok}/file/${x.date}">📎 ${esc(x.response.fileName)}</a>` : ''}. You can change it until the program director decides.</p>` : `<p class="muted">Please reply by ${attDate(new Date(x.deadline).toISOString().slice(0, 10))}. Without a reply the absence counts as unexcused.</p>`}
     <div class="att-kinds">${[['excuse', 'I have an excuse'], ['present', 'I was present'], ['none', 'No excuse']].map(([k, t]) => `<label><input type="radio" name="kind" value="${k}" style="width:auto" ${x.response?.kind === k ? 'checked' : ''} required> ${t}</label>`).join('')}</div>
     <label>Explanation<textarea name="text" rows="3" maxlength="1500" placeholder="The reason, or how you attended (e.g. signed the sheet late)">${esc(x.response?.text || '')}</textarea></label>
-    <label>Supporting document, optional (medical report…; PDF or photo, up to 10 MB)<input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.heic"></label>
+    <label>Official document — required for an excuse (PDF or photo, up to 10 MB)${x.response?.fileName ? ' · already attached: ' + esc(x.response.fileName) : ''}<input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.heic"></label>
+    <p class="muted">${ATT_DOCS}</p>
     <div class="e"></div><div class="row att-act"><button class="pri">Send reply</button></div></form>`;
   app.innerHTML = `<h1>Academic day attendance</h1>
   <p><b>${esc(D.name)}</b>${D.level ? ' · ' + esc(D.level) : ''}</p>
@@ -1856,14 +1858,16 @@ async function viewAtt(tok) {
   ${open.length ? `<h2>Waiting for your reply or the decision</h2>${open.map(form).join('')}` : ''}
   <div class="card"><h3>Your record</h3><div class="tw"><table class="stack"><tr class="hd"><th>Day</th><th>Status</th><th>Note from the program</th></tr>
    ${D.rows.slice().reverse().map((x) => `<tr><td class="ttl">${attDate(x.date)}</td><td data-label="Status">${attTag(x)}</td><td data-label="Note">${esc(x.note || '')}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">Nothing recorded yet</td></tr>'}</table></div></div>
-  <form class="card" id="nf"><h3>Tell the program in advance</h3><p class="muted">If you know you cannot attend a coming academic day, tell the program here before the day, as the curriculum requires. The program director decides whether it is excused.</p>
+  <form class="card" id="nf"><h3>Tell the program in advance</h3><p class="muted">If you know you cannot attend a coming academic day, tell the program here before the day, as the curriculum requires, with the official document. The program director decides whether it is excused.</p>
    <div class="row"><label>Academic day (Thursday)<input type="date" name="date" min="${D.today}" max="${pol.to}" required></label></div>
    <label>Reason<textarea name="text" rows="2" maxlength="1500" required></textarea></label>
-   <label>Supporting document, optional<input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.heic"></label><div class="e"></div><div class="row att-act"><button class="pri">Send</button></div>
+   <label>Official document (required)<input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.heic"></label><p class="muted">${ATT_DOCS}</p><div class="e"></div><div class="row att-act"><button class="pri">Send</button></div>
    ${D.notices.length ? `<p class="muted">Already sent: ${D.notices.map((n) => attDate(n.date)).join(', ')}</p>` : ''}</form>
   <p class="muted">Academic day: Thursdays 9:00–12:00. Lateness is not counted. Allowed: ${pol.allowed} unexcused absence${pol.allowed === 1 ? '' : 's'} (${attDate(pol.from)} – ${attDate(pol.to)}); more is referred to the program committee. This page is private to you; do not share its link.</p>`;
   const send = async (f, kind) => {
     const e = $('.e', f), btn = $('button.pri', f), date = f.dataset.date || f.date.value, file = f.file.files[0];
+    const had = D.rows.find((x) => x.date === date)?.response?.fileName;
+    if ((kind === 'excuse' || kind === 'notice') && !file && !had) { e.innerHTML = '<div class="err">Attach an official document. An excuse without one is not accepted.</div>'; return; }
     if (file && file.size > 10 * 1048576) { e.innerHTML = '<div class="err">The file is larger than 10 MB</div>'; return; }
     btn.disabled = true; e.innerHTML = '';
     try {
